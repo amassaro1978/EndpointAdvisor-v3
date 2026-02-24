@@ -9,7 +9,7 @@
 #>
 
 # ---- Config ------------------------------------------------------------------
-$ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $ScriptDir "EA.config.json"
 
 $DefaultConfig = @{
@@ -538,22 +538,12 @@ function Start-ContentRefresh {
 $Script:DashboardWindow = $null
 $Script:TrayIcon        = New-TrayIcon
 
-# Periodic refresh timer
 $timer          = New-Object System.Windows.Forms.Timer
 $timer.Interval = $Config.RefreshInterval * 1000
 $timer.Add_Tick({ Start-ContentRefresh })
 $timer.Start()
 
-# One-shot startup timer — fires 1s after message pump starts so UI is never blocked
-$startupTimer          = New-Object System.Windows.Forms.Timer
-$startupTimer.Interval = 1000
-$startupTimer.Add_Tick({
-    $startupTimer.Stop()
-    $startupTimer.Dispose()
-    Start-ContentRefresh
-})
-$startupTimer.Start()
-
+Start-ContentRefresh
 Write-Log "Endpoint Advisor started on $Hostname"
 
 [System.Windows.Forms.Application]::Run()
