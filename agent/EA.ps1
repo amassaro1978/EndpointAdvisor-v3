@@ -150,7 +150,9 @@ function New-TrayIcon {
     }))
 
     $tray.ContextMenuStrip = $menu
-    $tray.Add_Click({ Show-Dashboard })
+    $tray.Add_Click({
+        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Show-Dashboard }
+    })
     $tray.Add_DoubleClick({ Show-Dashboard })
     return $tray
 }
