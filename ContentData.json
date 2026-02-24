@@ -1,6 +1,6 @@
 {
   "schemaVersion": "3.0.0",
-  "contentVersion": "2026.02.24.1",
+  "contentVersion": "2026.02.24.2",
   "Data": {
     "Announcements": {
       "Default": [
@@ -15,6 +15,20 @@
           "StartDate": null,
           "EndDate": null,
           "NagEnabled": false,
+          "NagIntervalMinutes": 30,
+          "Links": []
+        },
+        {
+          "id": "ann-1771961561117",
+          "Platform": "All",
+          "Enabled": true,
+          "Priority": "critical",
+          "Title": "Test 2/4",
+          "Text": "testing 2/24",
+          "Details": "",
+          "StartDate": "2026-02-23T19:33:00.000Z",
+          "EndDate": "2026-02-27T19:33:00.000Z",
+          "NagEnabled": true,
           "NagIntervalMinutes": 30,
           "Links": []
         }
@@ -50,8 +64,14 @@
         "Text": "Contact the IT Help Desk for assistance.",
         "Details": "- Phone: 555-555-0100\n- Email: helpdesk@yourorg.com\n- Hours: Mon-Fri 8AM-5PM",
         "Links": [
-          { "Name": "Self-Service Portal", "Url": "https://intranet.yourorg.com/it" },
-          { "Name": "Knowledge Base", "Url": "https://kb.yourorg.com" }
+          {
+            "Name": "Self-Service Portal",
+            "Url": "https://intranet.yourorg.com/it"
+          },
+          {
+            "Name": "Knowledge Base",
+            "Url": "https://kb.yourorg.com"
+          }
         ]
       }
     ]
