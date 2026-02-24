@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Endpoint Advisor — Admin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:       #0f172a;
+  --surface:  #1e293b;
+  --surface2: #334155;
+  --border:   #475569;
+  --text:     #e2e8f0;
+  --muted:    #94a3b8;
+  --blue:     #3b82f6;
+  --green:    #10b981;
+  --yellow:   #f59e0b;
+  --red:      #ef4444;
+  --radius:   8px;
+}
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; }
+
+/* Layout */
+.topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+.topbar h1 { font-size: 18px; font-weight: 700; }
+.topbar .badge { font-size: 10px; background: var(--blue); color: #fff; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; letter-spacing: 1px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); margin-left: auto; }
+.status-dot.ok { background: var(--green); }
+.status-dot.err { background: var(--red); }
+.status-label { font-size: 12px; color: var(--muted); }
+
+.layout { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 57px); }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 16px; }
+.main { padding: 24px; overflow-y: auto; }
+
+/* Sidebar */
+.sidebar h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; }
+.sidebar input, .sidebar select, .sidebar textarea {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 8px 10px; font-size: 12px; font-family: inherit; margin-bottom: 10px;
+}
+.sidebar input:focus, .sidebar select:focus, .sidebar textarea:focus { outline: none; border-color: var(--blue); }
+.sidebar textarea { resize: vertical; min-height: 60px; }
+.sidebar label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: opacity .15s; }
+.btn:hover { opacity: .85; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-success { background: var(--green); color: #fff; }
+.btn-danger  { background: var(--red); color: #fff; }
+.btn-ghost   { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-sm      { padding: 5px 10px; font-size: 11px; }
+.btn-full    { width: 100%; justify-content: center; margin-bottom: 8px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--surface); border-radius: var(--radius); padding: 4px; width: fit-content; }
+.tab { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); background: transparent; border: none; font-family: inherit; }
+.tab.active { background: var(--surface2); color: var(--text); }
+
+/* Cards */
+.card-grid { display: flex; flex-direction: column; gap: 12px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  border-left: 4px solid var(--blue);
+  padding: 14px 16px; cursor: pointer; transition: border-color .15s;
+}
+.card:hover { border-color: var(--blue); background: #1e293bdd; }
+.card.priority-critical { border-left-color: var(--red); }
+.card.priority-warning  { border-left-color: var(--yellow); }
+.card.priority-info     { border-left-color: var(--blue); }
+.card.disabled          { opacity: .5; }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.card-title  { font-weight: 600; font-size: 14px; flex: 1; }
+.card-body   { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.card-footer { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* Pills */
+.pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.pill-info     { background: #1d3a6e; color: #93c5fd; }
+.pill-warning  { background: #4a3000; color: #fcd34d; }
+.pill-critical { background: #450a0a; color: #fca5a5; }
+.pill-platform { background: var(--surface2); color: var(--muted); }
+.pill-targeted { background: #1a2e1a; color: #86efac; }
+.pill-disabled { background: var(--surface2); color: var(--border); }
+
+/* Edit panel */
+.edit-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.edit-panel h2 { font-size: 16px; margin-bottom: 16px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-group { margin-bottom: 14px; }
+.form-group label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 9px 12px; font-size: 13px; font-family: inherit;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--blue); }
+.form-group textarea { resize: vertical; min-height: 80px; }
+.toggle-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.toggle { position: relative; width: 40px; height: 22px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 22px; cursor: pointer; transition: .2s; }
+.toggle input:checked + .toggle-slider { background: var(--green); }
+.toggle-slider::before { content:''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+.toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+.edit-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+/* Priority selector */
+.priority-btns { display: flex; gap: 8px; }
+.priority-btn { flex: 1; padding: 8px; border-radius: 6px; border: 2px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600; font-family: inherit; text-align: center; transition: all .15s; }
+.priority-btn.active-info     { border-color: var(--blue); color: var(--blue); background: #1d3a6e44; }
+.priority-btn.active-warning  { border-color: var(--yellow); color: var(--yellow); background: #4a300044; }
+.priority-btn.active-critical { border-color: var(--red); color: var(--red); background: #450a0a44; }
+
+/* Condition block */
+.condition-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-top: 6px; }
+
+/* Toast */
+.toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 18px; font-size: 13px; z-index: 9999; transform: translateY(80px); opacity: 0; transition: all .3s; max-width: 320px; }
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 4px solid var(--green); }
+.toast.error   { border-left: 4px solid var(--red); }
+
+/* Empty state */
+.empty { text-align: center; padding: 48px 24px; color: var(--muted); }
+.empty .icon { font-size: 40px; margin-bottom: 12px; }
+
+/* JSON preview */
+.json-preview { background: #0d1117; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; color: #79c0ff; overflow-x: auto; white-space: pre; line-height: 1.6; max-height: 60vh; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Endpoint Advisor</h1>
+  <span class="badge">Admin</span>
+  <span id="versionLabel" style="font-size:11px;color:var(--muted)"></span>
+  <span id="statusLabel" class="status-label" style="margin-left:auto"></span>
+  <span id="statusDot" class="status-dot"></span>
+</div>
+
+<div class="layout">
+  <!-- Sidebar: settings + actions -->
+  <div class="sidebar">
+    <h3>Source</h3>
+    <label>GitHub URL</label>
+    <input id="ghBaseUrl" placeholder="https://github.yourorg.com" title="Leave blank for github.com. For GitHub Enterprise enter your internal hostname.">
+    <label style="color:#64748b;font-size:10px;margin-top:-8px;margin-bottom:8px;display:block">Leave blank for github.com</label>
+    <label>GitHub Token</label>
+    <input id="ghToken" type="password" placeholder="ghp_xxxxxxxxxxxx">
+    <label>Owner / Repo</label>
+    <input id="ghOwner" placeholder="your-org">
+    <input id="ghRepo" placeholder="your-repo">
+    <label>Branch</label>
+    <input id="ghBranch" value="main">
+    <label>File Path</label>
+    <input id="ghPath" value="ContentData.json">
+    <button class="btn btn-primary btn-full" onclick="loadFromGitHub()">Load from GitHub</button>
+    <button class="btn btn-ghost btn-full" onclick="loadFromFile()">Load Local File</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleFileLoad(event)">
+
+    <hr class="divider">
+    <h3>Save</h3>
+    <button class="btn btn-success btn-full" onclick="saveToGitHub()">Commit to GitHub</button>
+    <button class="btn btn-ghost btn-full" onclick="downloadJSON()">Download JSON</button>
+
+    <hr class="divider">
+    <h3>Version</h3>
+    <label>Content Version</label>
+    <input id="contentVersionInput" placeholder="2026.02.24.1">
+    <button class="btn btn-ghost btn-full btn-sm" onclick="bumpVersion()">Auto-bump</button>
+  </div>
+
+  <!-- Main content -->
+  <div class="main">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('announcements', this)">Announcements</button>
+      <button class="tab" onclick="switchTab('support', this)">Support</button>
+      <button class="tab" onclick="switchTab('json', this)">JSON Preview</button>
+    </div>
+
+    <!-- Announcements tab -->
+    <div id="tab-announcements">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <h2 style="font-size:16px">Announcements</h2>
+        <button class="btn btn-primary btn-sm" onclick="newAnnouncement('Default')">+ Default</button>
+        <button class="btn btn-sm" style="background:#1a2e1a;color:#86efac;border:none" onclick="newAnnouncement('Targeted')">+ Targeted</button>
+      </div>
+
+      <div style="margin-bottom:8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Default</div>
+      <div id="defaultList" class="card-grid"></div>
+
+      <div style="margin:20px 0 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Targeted</div>
+      <div id="targetedList" class="card-grid"></div>
+
+      <!-- Edit panel -->
+      <div id="editPanel" class="edit-panel" style="display:none;margin-top:24px">
+        <h2 id="editTitle">Edit Announcement</h2>
+        <input type="hidden" id="editId">
+        <input type="hidden" id="editType">
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column:1/-1">
+            <label>Title</label>
+            <input id="fTitle" placeholder="Announcement title">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Body Text (Markdown supported)</label>
+          <textarea id="fText" rows="3" placeholder="Main message shown to users"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Details (optional, shown in expandable section)</label>
+          <textarea id="fDetails" rows="2" placeholder="Additional detail, schedule info, etc."></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Priority</label>
+            <div class="priority-btns">
+              <button class="priority-btn active-info" data-p="info" onclick="setPriority('info')">Info</button>
+              <button class="priority-btn" data-p="warning" onclick="setPriority('warning')">Warning</button>
+              <button class="priority-btn" data-p="critical" onclick="setPriority('critical')">Critical</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Platform</label>
+            <select id="fPlatform">
+              <option value="All">All</option>
+              <option value="Windows">Windows</option>
+              <option value="Mac">Mac</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Start Date (optional)</label>
+            <input type="datetime-local" id="fStartDate">
+          </div>
+          <div class="form-group">
+            <label>End Date (optional)</label>
+            <input type="datetime-local" id="fEndDate">
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <label class="toggle"><input type="checkbox" id="fEnabled" checked><span class="toggle-slider"></span></label>
+          <span>Enabled</span>
+          <label class="toggle" style="margin-left:24px"><input type="checkbox" id="fNag"><span class="toggle-slider"></span></label>
+          <span>Nag until acknowledged</span>
+          <input id="fNagInterval" type="number" value="30" min="5" style="width:60px;margin-left:8px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
+          <span style="font-size:11px;color:var(--muted)">min</span>
+        </div>
+
+        <!-- Links -->
+        <div class="form-group" style="margin-top:10px">
+          <label>Links</label>
+          <div id="linksContainer"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addLink()">+ Add Link</button>
+        </div>
+
+        <!-- Targeting (only for Targeted type) -->
+        <div id="targetingSection" style="display:none">
+          <hr class="divider">
+          <div class="form-group">
+            <label>Targeting Condition</label>
+            <div class="condition-block">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Type</label>
+                  <select id="fCondType">
+                    <option value="Registry">Registry</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Value must equal</label>
+                  <input id="fCondValue" placeholder="e.g. Pilot">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Registry Path</label>
+                <input id="fCondPath" placeholder="HKLM:\SOFTWARE\YourOrg\Targeting">
+              </div>
+              <div class="form-group">
+                <label>Registry Name</label>
+                <input id="fCondName" placeholder="Group">
+              </div>
+            </div>
+          </div>
+          <div class="toggle-row" style="padding:0 0 8px">
+            <label class="toggle"><input type="checkbox" id="fAppend"><span class="toggle-slider"></span></label>
+            <span>Append to Default announcements (show both)</span>
+          </div>
+        </div>
+
+        <div class="edit-actions">
+          <button class="btn btn-primary" onclick="saveAnnouncement()">Save</button>
+          <button class="btn btn-ghost" onclick="cancelEdit()">Cancel</button>
+          <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deleteAnnouncement()">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Support tab -->
+    <div id="tab-support" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <h2 style="font-size:16px">Support Info</h2>
+        <button class="btn btn-primary btn-sm" onclick="newSupport()">+ Add</button>
+      </div>
+      <div id="supportList" class="card-grid"></div>
+      <div id="supportEditPanel" class="edit-panel" style="display:none;margin-top:24px">
+        <h2>Edit Support Entry</h2>
+        <input type="hidden" id="sEditId">
+        <div class="form-group">
+          <label>Platform</label>
+          <select id="sPlatform">
+            <option value="All">All</option>
+            <option value="Windows">Windows</option>
+            <option value="Mac">Mac</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Text</label>
+          <input id="sText" placeholder="Short description">
+        </div>
+        <div class="form-group">
+          <label>Details</label>
+          <textarea id="sDetails" rows="4" placeholder="Phone, email, hours..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Links</label>
+          <div id="supportLinksContainer"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addSupportLink()">+ Add Link</button>
+        </div>
+        <div class="edit-actions">
+          <button class="btn btn-primary" onclick="saveSupport()">Save</button>
+          <button class="btn btn-ghost" onclick="cancelSupportEdit()">Cancel</button>
+          <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deleteSupport()">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- JSON Preview tab -->
+    <div id="tab-json" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <h2 style="font-size:16px">JSON Preview</h2>
+        <button class="btn btn-ghost btn-sm" onclick="refreshPreview()">Refresh</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyJSON()">Copy</button>
+      </div>
+      <pre id="jsonPreview" class="json-preview">Load a file to see preview...</pre>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ---- State -------------------------------------------------------------------
+let state = {
+  data: null,
+  sha: null,          // GitHub blob SHA (needed for updates)
+  editingId: null,
+  editingType: null,  // 'Default' | 'Targeted'
+  editingSection: null // 'announcement' | 'support'
+}
+
+const $ = id => document.getElementById(id)
+
+// ---- Persistence (localStorage) ---------------------------------------------
+window.addEventListener('load', () => {
+  const saved = localStorage.getItem('ea_admin_config')
+  if (saved) {
+    const c = JSON.parse(saved)
+    $('ghBaseUrl').value = c.baseUrl || ''
+    $('ghToken').value   = c.token   || ''
+    $('ghOwner').value   = c.owner   || ''
+    $('ghRepo').value    = c.repo    || ''
+    $('ghBranch').value  = c.branch  || 'main'
+    $('ghPath').value    = c.path    || 'ContentData.json'
+  }
+})
+
+function saveConfig() {
+  localStorage.setItem('ea_admin_config', JSON.stringify({
+    baseUrl: $('ghBaseUrl').value, token: $('ghToken').value,
+    owner:   $('ghOwner').value,   repo:  $('ghRepo').value,
+    branch:  $('ghBranch').value,  path:  $('ghPath').value
+  }))
+}
+
+// ---- GitHub API --------------------------------------------------------------
+async function loadFromGitHub() {
+  saveConfig()
+  const cfg = getGHConfig()
+  if (!cfg.owner || !cfg.repo) { toast('Enter owner and repo', 'error'); return }
+  setStatus('loading...')
+  try {
+    const headers = cfg.token ? { Authorization: `token ${cfg.token}` } : {}
+    const url = `${cfg.apiBase}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}?ref=${cfg.branch}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) throw new Error(await res.text())
+    const meta = await res.json()
+    state.sha = meta.sha
+    const json = JSON.parse(atob(meta.content.replace(/\n/g,'')))
+    loadData(json)
+    setStatus(`loaded ${cfg.isGHE ? '(Enterprise)' : '(github.com)'}`, true)
+    toast(`Loaded from ${cfg.isGHE ? 'GitHub Enterprise' : 'GitHub'}`)
+  } catch(e) {
+    setStatus('error', false, true)
+    toast('Load failed: ' + e.message, 'error')
+  }
+}
+
+async function saveToGitHub() {
+  if (!state.data) { toast('No data loaded', 'error'); return }
+  saveConfig()
+  const cfg = getGHConfig()
+  if (!cfg.token)             { toast('GitHub token required to save', 'error'); return }
+  if (!cfg.owner || !cfg.repo){ toast('Enter owner and repo', 'error'); return }
+
+  bumpVersion()
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(state.data, null, 2))))
+  const body = {
+    message: `EA Admin: update ${cfg.path} (v${state.data.contentVersion})`,
+    content,
+    branch: cfg.branch,
+    ...(state.sha ? { sha: state.sha } : {})
+  }
+
+  try {
+    const cfg = getGHConfig()
+    const url = `${cfg.apiBase}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { Authorization: `token ${cfg.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    if (!res.ok) throw new Error(await res.text())
+    const result = await res.json()
+    state.sha = result.content.sha
+    toast(`Committed to ${cfg.isGHE ? 'GitHub Enterprise' : 'GitHub'}!`, 'success')
+    setStatus('saved', true)
+  } catch(e) {
+    toast('Save failed: ' + e.message, 'error')
+  }
+}
+
+function getGHConfig() {
+  const base   = ($('ghBaseUrl').value.trim().replace(/\/$/, '')) || ''
+  const isGHE  = base !== ''
+  // GitHub Enterprise: API is at https://HOSTNAME/api/v3
+  // Raw content:       https://HOSTNAME/raw/OWNER/REPO/BRANCH/PATH
+  // github.com:        API is https://api.github.com
+  // Raw content:       https://raw.githubusercontent.com/OWNER/REPO/BRANCH/PATH
+  const apiBase = isGHE ? `${base}/api/v3` : 'https://api.github.com'
+  const rawBase = isGHE ? `${base}/raw`    : 'https://raw.githubusercontent.com'
+  return {
+    token:   $('ghToken').value.trim(),
+    owner:   $('ghOwner').value.trim(),
+    repo:    $('ghRepo').value.trim(),
+    branch:  $('ghBranch').value.trim() || 'main',
+    path:    $('ghPath').value.trim()   || 'ContentData.json',
+    apiBase, rawBase, isGHE
+  }
+}
+
+// ---- Local file --------------------------------------------------------------
+function loadFromFile() { $('fileInput').click() }
+function handleFileLoad(e) {
+  const f = e.target.files[0]; if (!f) return
+  const r = new FileReader()
+  r.onload = ev => { try { loadData(JSON.parse(ev.target.result)); toast('File loaded') } catch { toast('Invalid JSON', 'error') } }
+  r.readAsText(f)
+}
+
+function downloadJSON() {
+  if (!state.data) { toast('No data loaded', 'error'); return }
+  bumpVersion()
+  const blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+  a.download = 'ContentData.json'; a.click()
+  toast('Downloaded')
+}
+
+// ---- Data load ---------------------------------------------------------------
+function loadData(json) {
+  state.data = json
+  if (!state.data.Data.Announcements.Default)  state.data.Data.Announcements.Default  = []
+  if (!state.data.Data.Announcements.Targeted) state.data.Data.Announcements.Targeted = []
+  if (!state.data.Data.Support) state.data.Data.Support = []
+  $('contentVersionInput').value = json.contentVersion || ''
+  $('versionLabel').textContent  = 'v' + (json.contentVersion || '?')
+  renderAll()
+  refreshPreview()
+}
+
+function bumpVersion() {
+  if (!state.data) return
+  const today = new Date()
+  const base  = `${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,'0')}.${String(today.getDate()).padStart(2,'0')}`
+  const cur   = state.data.contentVersion || ''
+  let seq = 1
+  if (cur.startsWith(base)) { const p = cur.split('.'); seq = (parseInt(p[3]||0) + 1) }
+  const v = `${base}.${seq}`
+  state.data.contentVersion = v
+  $('contentVersionInput').value = v
+  $('versionLabel').textContent  = 'v' + v
+}
+
+// ---- Render ------------------------------------------------------------------
+function renderAll() {
+  renderList('defaultList',  state.data.Data.Announcements.Default,  'Default')
+  renderList('targetedList', state.data.Data.Announcements.Targeted, 'Targeted')
+  renderSupportList()
+  refreshPreview()
+}
+
+function renderList(containerId, items, type) {
+  const el = $(containerId); el.innerHTML = ''
+  if (!items || !items.length) {
+    el.innerHTML = `<div class="empty"><div class="icon">📭</div><div>No ${type.toLowerCase()} announcements</div></div>`
+    return
+  }
+  items.forEach(item => {
+    const card = document.createElement('div')
+    card.className = `card priority-${item.Priority||'info'} ${item.Enabled===false?'disabled':''}`
+    card.onclick = () => editAnnouncement(item.id, type)
+    const condBadge = (type==='Targeted' && item.Condition) ? `<span class="pill pill-targeted">Targeted</span>` : ''
+    const nagBadge  = item.NagEnabled ? `<span class="pill pill-warning">Nag</span>` : ''
+    const disBadge  = item.Enabled===false ? `<span class="pill pill-disabled">Disabled</span>` : ''
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-title">${item.Title||'(no title)'}</span>
+        <span class="pill pill-${item.Priority||'info'}">${item.Priority||'info'}</span>
+        <span class="pill pill-platform">${item.Platform||'All'}</span>
+        ${condBadge}${nagBadge}${disBadge}
+      </div>
+      <div class="card-body">${(item.Text||'').substring(0,120)}${(item.Text||'').length>120?'...':''}</div>
+      ${item.StartDate||item.EndDate ? `<div class="card-footer" style="font-size:11px;color:var(--muted)">${item.StartDate?'From '+fmtDate(item.StartDate):''}${item.EndDate?' Until '+fmtDate(item.EndDate):''}</div>` : ''}
+    `
+    el.appendChild(card)
+  })
+}
+
+function renderSupportList() {
+  const el = $('supportList'); el.innerHTML = ''
+  const items = state.data?.Data?.Support || []
+  if (!items.length) { el.innerHTML = '<div class="empty"><div class="icon">📞</div><div>No support entries</div></div>'; return }
+  items.forEach(item => {
+    const card = document.createElement('div')
+    card.className = 'card priority-info'
+    card.onclick = () => editSupport(item.id)
+    card.innerHTML = `
+      <div class="card-header"><span class="card-title">${item.Text||'(no text)'}</span><span class="pill pill-platform">${item.Platform||'All'}</span></div>
+      <div class="card-body">${(item.Details||'').substring(0,100)}</div>
+    `
+    el.appendChild(card)
+  })
+}
+
+function fmtDate(d) { try { return new Date(d).toLocaleDateString() } catch { return d } }
+
+// ---- Edit announcement -------------------------------------------------------
+function newAnnouncement(type) {
+  const id = 'ann-' + Date.now()
+  const item = {
+    id, Platform:'All', Enabled:true, Priority:'info',
+    Title:'', Text:'', Details:'', StartDate:null, EndDate:null,
+    NagEnabled:false, NagIntervalMinutes:30, Links:[]
+  }
+  if (type==='Targeted') { item.Condition = { Type:'Registry', Path:'', Name:'', Value:'' }; item.AppendToDefault = false }
+  state.data.Data.Announcements[type].push(item)
+  renderAll()
+  editAnnouncement(id, type)
+}
+
+function editAnnouncement(id, type) {
+  const arr = state.data.Data.Announcements[type]
+  const item = arr.find(a => a.id === id)
+  if (!item) return
+
+  state.editingId      = id
+  state.editingType    = type
+  state.editingSection = 'announcement'
+
+  $('editTitle').textContent = type==='Targeted' ? 'Edit Targeted Announcement' : 'Edit Default Announcement'
+  $('editId').value      = id
+  $('editType').value    = type
+  $('fTitle').value      = item.Title || ''
+  $('fText').value       = item.Text  || ''
+  $('fDetails').value    = item.Details || ''
+  $('fPlatform').value   = item.Platform || 'All'
+  $('fEnabled').checked  = item.Enabled !== false
+  $('fNag').checked      = item.NagEnabled || false
+  $('fNagInterval').value = item.NagIntervalMinutes || 30
+  $('fStartDate').value  = item.StartDate ? toLocalDT(item.StartDate) : ''
+  $('fEndDate').value    = item.EndDate   ? toLocalDT(item.EndDate)   : ''
+
+  setPriority(item.Priority || 'info')
+  renderLinks(item.Links || [])
+
+  $('targetingSection').style.display = type==='Targeted' ? '' : 'none'
+  if (type==='Targeted' && item.Condition) {
+    $('fCondType').value  = item.Condition.Type  || 'Registry'
+    $('fCondPath').value  = item.Condition.Path  || ''
+    $('fCondName').value  = item.Condition.Name  || ''
+    $('fCondValue').value = item.Condition.Value || ''
+    $('fAppend').checked  = item.AppendToDefault || false
+  }
+
+  $('editPanel').style.display = ''
+  $('editPanel').scrollIntoView({ behavior:'smooth', block:'start' })
+}
+
+function saveAnnouncement() {
+  const id   = $('editId').value
+  const type = $('editType').value
+  const arr  = state.data.Data.Announcements[type]
+  const idx  = arr.findIndex(a => a.id === id)
+  if (idx < 0) return
+
+  const item = arr[idx]
+  item.Title    = $('fTitle').value
+  item.Text     = $('fText').value
+  item.Details  = $('fDetails').value
+  item.Platform = $('fPlatform').value
+  item.Enabled  = $('fEnabled').checked
+  item.Priority = document.querySelector('.priority-btn.active-'+document.querySelector('[data-p]')?.getAttribute('data-p'))?.getAttribute('data-p') || 'info'
+  // get active priority
+  const activePB = document.querySelector('.priority-btn[class*="active-"]')
+  if (activePB) item.Priority = activePB.getAttribute('data-p')
+  item.NagEnabled          = $('fNag').checked
+  item.NagIntervalMinutes  = parseInt($('fNagInterval').value) || 30
+  item.StartDate = $('fStartDate').value ? new Date($('fStartDate').value).toISOString() : null
+  item.EndDate   = $('fEndDate').value   ? new Date($('fEndDate').value).toISOString()   : null
+  item.Links     = getLinks()
+
+  if (type==='Targeted') {
+    item.Condition = {
+      Type:  $('fCondType').value,
+      Path:  $('fCondPath').value,
+      Name:  $('fCondName').value,
+      Value: $('fCondValue').value
+    }
+    item.AppendToDefault = $('fAppend').checked
+  }
+
+  $('editPanel').style.display = 'none'
+  renderAll()
+  toast('Saved')
+}
+
+function deleteAnnouncement() {
+  if (!confirm('Delete this announcement?')) return
+  const id = $('editId').value; const type = $('editType').value
+  const arr = state.data.Data.Announcements[type]
+  const idx = arr.findIndex(a => a.id === id)
+  if (idx >= 0) arr.splice(idx, 1)
+  $('editPanel').style.display = 'none'
+  renderAll(); toast('Deleted')
+}
+
+function cancelEdit() { $('editPanel').style.display = 'none' }
+
+// ---- Edit support ------------------------------------------------------------
+function newSupport() {
+  const id = 'support-' + Date.now()
+  state.data.Data.Support.push({ id, Platform:'All', Text:'', Details:'', Links:[], updatedAt: new Date().toISOString() })
+  renderSupportList(); editSupport(id)
+}
+
+function editSupport(id) {
+  const item = state.data.Data.Support.find(s => s.id===id); if (!item) return
+  state.editingId = id; state.editingSection = 'support'
+  $('sEditId').value    = id
+  $('sPlatform').value  = item.Platform || 'All'
+  $('sText').value      = item.Text     || ''
+  $('sDetails').value   = item.Details  || ''
+  renderSupportLinks(item.Links || [])
+  $('supportEditPanel').style.display = ''
+  $('supportEditPanel').scrollIntoView({ behavior:'smooth' })
+}
+
+function saveSupport() {
+  const id  = $('sEditId').value
+  const idx = state.data.Data.Support.findIndex(s => s.id===id); if (idx<0) return
+  const item = state.data.Data.Support[idx]
+  item.Platform   = $('sPlatform').value
+  item.Text       = $('sText').value
+  item.Details    = $('sDetails').value
+  item.Links      = getSupportLinks()
+  item.updatedAt  = new Date().toISOString()
+  $('supportEditPanel').style.display = 'none'
+  renderSupportList(); toast('Saved')
+}
+
+function deleteSupport() {
+  if (!confirm('Delete?')) return
+  const id = $('sEditId').value
+  const idx = state.data.Data.Support.findIndex(s=>s.id===id)
+  if (idx>=0) state.data.Data.Support.splice(idx,1)
+  $('supportEditPanel').style.display='none'; renderSupportList(); toast('Deleted')
+}
+function cancelSupportEdit() { $('supportEditPanel').style.display='none' }
+
+// ---- Links helpers -----------------------------------------------------------
+function renderLinks(links) {
+  const c = $('linksContainer'); c.innerHTML = ''
+  links.forEach((l,i) => c.appendChild(linkRow(l.Name, l.Url, i, 'linksContainer', 'ann')))
+}
+function addLink() {
+  const links = getLinks(); links.push({ Name:'', Url:'' }); renderLinks(links)
+}
+function getLinks() {
+  return Array.from($('linksContainer').querySelectorAll('.link-row')).map(r => ({
+    Name: r.querySelector('.lname').value, Url: r.querySelector('.lurl').value
+  })).filter(l => l.Name || l.Url)
+}
+function renderSupportLinks(links) {
+  const c = $('supportLinksContainer'); c.innerHTML = ''
+  links.forEach((l,i) => c.appendChild(linkRow(l.Name, l.Url, i, 'supportLinksContainer', 'sup')))
+}
+function addSupportLink() {
+  const links = getSupportLinks(); links.push({ Name:'', Url:'' }); renderSupportLinks(links)
+}
+function getSupportLinks() {
+  return Array.from($('supportLinksContainer').querySelectorAll('.link-row')).map(r => ({
+    Name: r.querySelector('.lname').value, Url: r.querySelector('.lurl').value
+  })).filter(l => l.Name || l.Url)
+}
+function linkRow(name, url, i, containerId, pfx) {
+  const d = document.createElement('div')
+  d.className = 'link-row'
+  d.style = 'display:flex;gap:8px;margin-bottom:6px;align-items:center'
+  d.innerHTML = `
+    <input class="lname" placeholder="Label" value="${name||''}" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
+    <input class="lurl"  placeholder="https://..." value="${url||''}"  style="flex:2;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
+    <button onclick="this.closest('.link-row').remove()" style="background:var(--red);border:none;color:#fff;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px">x</button>
+  `
+  return d
+}
+
+// ---- Priority buttons --------------------------------------------------------
+function setPriority(p) {
+  document.querySelectorAll('.priority-btn').forEach(b => {
+    b.className = 'priority-btn' + (b.getAttribute('data-p')===p ? ` active-${p}` : '')
+  })
+}
+
+// ---- Tabs --------------------------------------------------------------------
+function switchTab(name, btn) {
+  ['announcements','support','json'].forEach(t => $('tab-'+t).style.display = t===name?'':'none')
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  if (name==='json') refreshPreview()
+}
+
+// ---- JSON Preview ------------------------------------------------------------
+function refreshPreview() {
+  if (!state.data) { $('jsonPreview').textContent = 'No data loaded'; return }
+  $('jsonPreview').textContent = JSON.stringify(state.data, null, 2)
+}
+function copyJSON() {
+  if (!state.data) return
+  navigator.clipboard.writeText(JSON.stringify(state.data, null, 2)).then(() => toast('Copied to clipboard'))
+}
+
+// ---- Status / Toast ----------------------------------------------------------
+function setStatus(msg, ok, err) {
+  $('statusLabel').textContent = msg
+  $('statusDot').className = 'status-dot' + (ok?' ok':err?' err':'')
+}
+
+function toast(msg, type='success') {
+  const t = $('toast')
+  t.textContent = msg; t.className = `toast ${type} show`
+  setTimeout(() => { t.classList.remove('show') }, 3000)
+}
+
+// ---- Utilities ---------------------------------------------------------------
+function toLocalDT(iso) {
+  try { const d=new Date(iso); return d.toISOString().slice(0,16) } catch { return '' }
+}
+
+// ---- Init --------------------------------------------------------------------
+setStatus('no file loaded')
+</script>
+</body>
+</html>

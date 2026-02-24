@@ -1,0 +1,8 @@
+{
+  "ContentDataUrl": "https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/ContentData.json",
+  "GitHubToken": "",
+  "RefreshInterval": 900,
+  "Platform": "Windows",
+  "LogPath": "C:\\ProgramData\\EndpointAdvisor\\EA.log",
+  "LogMaxSizeMB": 2
+}

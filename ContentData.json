@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "3.0.0",
+  "contentVersion": "2026.02.24.1",
+  "Data": {
+    "Announcements": {
+      "Default": [
+        {
+          "id": "def-all-001",
+          "Platform": "All",
+          "Enabled": true,
+          "Priority": "info",
+          "Title": "Welcome to Endpoint Advisor",
+          "Text": "Your go-to hub for IT communications and alerts.",
+          "Details": "Use this tool to stay informed about upcoming maintenance, patch schedules, and important IT announcements.",
+          "StartDate": null,
+          "EndDate": null,
+          "NagEnabled": false,
+          "NagIntervalMinutes": 30,
+          "Links": []
+        }
+      ],
+      "Targeted": [
+        {
+          "id": "tg-win-pilot-001",
+          "Platform": "Windows",
+          "Enabled": false,
+          "Priority": "warning",
+          "AppendToDefault": true,
+          "Title": "Pilot Program",
+          "Text": "You are enrolled in the pilot program.",
+          "Details": "Please submit feedback to your IT team.",
+          "StartDate": null,
+          "EndDate": null,
+          "NagEnabled": false,
+          "NagIntervalMinutes": 30,
+          "Links": [],
+          "Condition": {
+            "Type": "Registry",
+            "Path": "HKLM:\\SOFTWARE\\YourOrg\\Targeting",
+            "Name": "Program",
+            "Value": "Pilot"
+          }
+        }
+      ]
+    },
+    "Support": [
+      {
+        "id": "support-all-001",
+        "Platform": "All",
+        "Text": "Contact the IT Help Desk for assistance.",
+        "Details": "- Phone: 555-555-0100\n- Email: helpdesk@yourorg.com\n- Hours: Mon-Fri 8AM-5PM",
+        "Links": [
+          { "Name": "Self-Service Portal", "Url": "https://intranet.yourorg.com/it" },
+          { "Name": "Knowledge Base", "Url": "https://kb.yourorg.com" }
+        ]
+      }
+    ]
+  }
+}
