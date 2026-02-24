@@ -55,21 +55,18 @@ $Script:LastNagTime      = @{}
 
 function Get-ContentData {
     try {
-        $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
-        if ($Config.GitHubToken) {
-            $headers['Authorization'] = "token $($Config.GitHubToken)"
-            $headers['Accept']        = 'application/vnd.github.raw+json'
+        $headers = @{
+            'User-Agent'    = 'EndpointAdvisor'
+            'Authorization' = "token $($Config.GitHubToken)"
         }
         $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
-        $raw     = Invoke-WebRequest @params
-        $parsed  = $raw.Content | ConvertFrom-Json
-        # GitHub API returns a base64 envelope when Accept header isn't honoured
-        if ($parsed.PSObject.Properties['content'] -and $parsed.PSObject.Properties['encoding']) {
-            $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($parsed.content -replace '\s','')))
-            $data    = $decoded | ConvertFrom-Json
-        } else {
-            $data = $parsed
-        }
+        $raw    = Invoke-WebRequest @params
+        # GitHub API returns { content: "base64...", encoding: "base64" } for private repos
+        $envelope = $raw.Content | ConvertFrom-Json
+        $b64      = $envelope.content -replace '[\r\n\s]', ''
+        $bytes    = [System.Convert]::FromBase64String($b64)
+        $json     = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $data     = $json | ConvertFrom-Json
         Write-Log "Content fetched OK (v$($data.contentVersion))"
         return $data
     } catch {
@@ -227,21 +224,14 @@ function Start-AnnouncementsLoad {
         $items    = @()
         $hasUnread = $false
         try {
-            $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
-            if ($GitHubToken) {
-                $headers['Authorization'] = "token $GitHubToken"
-                $headers['Accept']        = 'application/vnd.github.raw+json'
-            }
-            $params = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
-            $raw    = Invoke-WebRequest @params
-            $parsed = $raw.Content | ConvertFrom-Json
-            if ($parsed.PSObject.Properties['content'] -and $parsed.PSObject.Properties['encoding']) {
-                $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($parsed.content -replace '\s','')))
-                $data    = $decoded | ConvertFrom-Json
-            } else {
-                $data = $parsed
-            }
-            $now  = Get-Date
+            $headers = @{ 'User-Agent' = 'EndpointAdvisor'; 'Authorization' = "token $GitHubToken" }
+            $params  = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
+            $raw      = Invoke-WebRequest @params
+            $envelope = $raw.Content | ConvertFrom-Json
+            $b64      = $envelope.content -replace '[\r\n\s]', ''
+            $bytes    = [System.Convert]::FromBase64String($b64)
+            $data     = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
+            $now      = Get-Date
 
             $all = @()
             $all += $data.Data.Announcements.Default
