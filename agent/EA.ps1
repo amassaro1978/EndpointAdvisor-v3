@@ -54,18 +54,11 @@ $Script:LastNagTime      = @{}
 
 function Get-ContentData {
     try {
-        $headers = @{
-            'User-Agent'    = 'EndpointAdvisor'
-            'Authorization' = "token $($Config.GitHubToken)"
-        }
+        $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
+        if ($Config.GitHubToken) { $headers['Authorization'] = "token $($Config.GitHubToken)" }
         $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
         $raw    = Invoke-WebRequest @params
-        # GitHub API returns { content: "base64...", encoding: "base64" } for private repos
-        $envelope = $raw.Content | ConvertFrom-Json
-        $b64      = $envelope.content -replace '[\r\n\s]', ''
-        $bytes    = [System.Convert]::FromBase64String($b64)
-        $json     = [System.Text.Encoding]::UTF8.GetString($bytes)
-        $data     = $json | ConvertFrom-Json
+        $data   = $raw.Content | ConvertFrom-Json
         Write-Log "Content fetched OK (v$($data.contentVersion))"
         return $data
     } catch {
@@ -202,14 +195,12 @@ function Start-AnnouncementsLoad {
         $items    = @()
         $hasUnread = $false
         try {
-            $headers = @{ 'User-Agent' = 'EndpointAdvisor'; 'Authorization' = "token $GitHubToken" }
+            $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
+            if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
             $params  = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
-            $raw      = Invoke-WebRequest @params
-            $envelope = $raw.Content | ConvertFrom-Json
-            $b64      = $envelope.content -replace '[\r\n\s]', ''
-            $bytes    = [System.Convert]::FromBase64String($b64)
-            $data     = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
-            $now      = Get-Date
+            $raw     = Invoke-WebRequest @params
+            $data    = $raw.Content | ConvertFrom-Json
+            $now     = Get-Date
 
             foreach ($item in $data.Data.Announcements.Default) {
                 if (-not $item -or $item.Enabled -eq $false) { continue }
