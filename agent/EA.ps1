@@ -75,39 +75,20 @@ function Get-ContentData {
     }
 }
 
-function Test-Condition($condition) {
-    if (-not $condition) { return $true }
-    switch ($condition.Type) {
-        'Registry' {
-            try {
-                $val = (Get-ItemProperty -Path $condition.Path -Name $condition.Name -ErrorAction Stop).$($condition.Name)
-                return ($val -eq $condition.Value)
-            } catch { return $false }
-        }
-        default { return $false }
-    }
-}
+# Targeting removed  add back later if needed
 
 function Get-RelevantAnnouncements($data) {
     if (-not $data -or -not $data.Data -or -not $data.Data.Announcements) { return @() }
-    $now       = Get-Date
-    $platform  = $Config.Platform
-    $results   = [System.Collections.Generic.List[object]]::new()
+    $now     = Get-Date
+    $platform = $Config.Platform
+    $results  = [System.Collections.Generic.List[object]]::new()
 
-    $allItems = @()
-    $allItems += $data.Data.Announcements.Default
-    $allItems += $data.Data.Announcements.Targeted
-
-    foreach ($item in $allItems) {
+    foreach ($item in $data.Data.Announcements.Default) {
         if (-not $item) { continue }
         if ($item.Enabled -eq $false) { continue }
         if ($item.Platform -ne "All" -and $item.Platform -ne $platform) { continue }
         if ($item.StartDate -and ([datetime]$item.StartDate) -gt $now) { continue }
         if ($item.EndDate   -and ([datetime]$item.EndDate)   -lt $now) { continue }
-        # Targeted: check condition
-        if ($item.PSObject.Properties['Condition']) {
-            if (-not (Test-Condition $item.Condition)) { continue }
-        }
         $results.Add($item) | Out-Null
     }
     return $results.ToArray()
@@ -233,24 +214,11 @@ function Start-AnnouncementsLoad {
             $data     = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
             $now      = Get-Date
 
-            $all = @()
-            $all += $data.Data.Announcements.Default
-            $all += $data.Data.Announcements.Targeted
-
-            foreach ($item in $all) {
+            foreach ($item in $data.Data.Announcements.Default) {
                 if (-not $item -or $item.Enabled -eq $false) { continue }
                 if ($item.Platform -ne "All" -and $item.Platform -ne $Platform) { continue }
                 if ($item.StartDate -and ([datetime]$item.StartDate) -gt $now) { continue }
                 if ($item.EndDate   -and ([datetime]$item.EndDate)   -lt $now) { continue }
-                if ($item.PSObject.Properties['Condition']) {
-                    $c = $item.Condition
-                    if ($c.Type -eq 'Registry') {
-                        try {
-                            $val = (Get-ItemProperty -Path $c.Path -Name $c.Name -ErrorAction Stop).$($c.Name)
-                            if ($val -ne $c.Value) { continue }
-                        } catch { continue }
-                    } else { continue }
-                }
                 $items += $item
                 $hasUnread = $true
             }

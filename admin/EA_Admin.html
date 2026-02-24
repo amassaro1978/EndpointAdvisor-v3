@@ -185,15 +185,10 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
     <div id="tab-announcements">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
         <h2 style="font-size:16px">Announcements</h2>
-        <button class="btn btn-primary btn-sm" onclick="newAnnouncement('Default')">+ Default</button>
-        <button class="btn btn-sm" style="background:#1a2e1a;color:#86efac;border:none" onclick="newAnnouncement('Targeted')">+ Targeted</button>
+        <button class="btn btn-primary btn-sm" onclick="newAnnouncement('Default')">+ Add Announcement</button>
       </div>
 
-      <div style="margin-bottom:8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Default</div>
       <div id="defaultList" class="card-grid"></div>
-
-      <div style="margin:20px 0 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Targeted</div>
-      <div id="targetedList" class="card-grid"></div>
 
       <!-- Edit panel -->
       <div id="editPanel" class="edit-panel" style="display:none;margin-top:24px">
@@ -260,40 +255,6 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
           <label>Links</label>
           <div id="linksContainer"></div>
           <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addLink()">+ Add Link</button>
-        </div>
-
-        <!-- Targeting (only for Targeted type) -->
-        <div id="targetingSection" style="display:none">
-          <hr class="divider">
-          <div class="form-group">
-            <label>Targeting Condition</label>
-            <div class="condition-block">
-              <div class="form-row">
-                <div class="form-group">
-                  <label>Type</label>
-                  <select id="fCondType">
-                    <option value="Registry">Registry</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Value must equal</label>
-                  <input id="fCondValue" placeholder="e.g. Pilot">
-                </div>
-              </div>
-              <div class="form-group">
-                <label>Registry Path</label>
-                <input id="fCondPath" placeholder="HKLM:\SOFTWARE\YourOrg\Targeting">
-              </div>
-              <div class="form-group">
-                <label>Registry Name</label>
-                <input id="fCondName" placeholder="Group">
-              </div>
-            </div>
-          </div>
-          <div class="toggle-row" style="padding:0 0 8px">
-            <label class="toggle"><input type="checkbox" id="fAppend"><span class="toggle-slider"></span></label>
-            <span>Append to Default announcements (show both)</span>
-          </div>
         </div>
 
         <div class="edit-actions">
@@ -488,8 +449,7 @@ function downloadJSON() {
 // ---- Data load ---------------------------------------------------------------
 function loadData(json) {
   state.data = json
-  if (!state.data.Data.Announcements.Default)  state.data.Data.Announcements.Default  = []
-  if (!state.data.Data.Announcements.Targeted) state.data.Data.Announcements.Targeted = []
+  if (!state.data.Data.Announcements.Default) state.data.Data.Announcements.Default = []
   if (!state.data.Data.Support) state.data.Data.Support = []
   $('contentVersionInput').value = json.contentVersion || ''
   $('versionLabel').textContent  = 'v' + (json.contentVersion || '?')
@@ -512,8 +472,7 @@ function bumpVersion() {
 
 // ---- Render ------------------------------------------------------------------
 function renderAll() {
-  renderList('defaultList',  state.data.Data.Announcements.Default,  'Default')
-  renderList('targetedList', state.data.Data.Announcements.Targeted, 'Targeted')
+  renderList('defaultList', state.data.Data.Announcements.Default, 'Default')
   renderSupportList()
   refreshPreview()
 }
@@ -527,16 +486,15 @@ function renderList(containerId, items, type) {
   items.forEach(item => {
     const card = document.createElement('div')
     card.className = `card priority-${item.Priority||'info'} ${item.Enabled===false?'disabled':''}`
-    card.onclick = () => editAnnouncement(item.id, type)
-    const condBadge = (type==='Targeted' && item.Condition) ? `<span class="pill pill-targeted">Targeted</span>` : ''
-    const nagBadge  = item.NagEnabled ? `<span class="pill pill-warning">Nag</span>` : ''
-    const disBadge  = item.Enabled===false ? `<span class="pill pill-disabled">Disabled</span>` : ''
+    card.onclick = () => editAnnouncement(item.id)
+    const nagBadge = item.NagEnabled ? `<span class="pill pill-warning">Nag</span>` : ''
+    const disBadge = item.Enabled===false ? `<span class="pill pill-disabled">Disabled</span>` : ''
     card.innerHTML = `
       <div class="card-header">
         <span class="card-title">${item.Title||'(no title)'}</span>
         <span class="pill pill-${item.Priority||'info'}">${item.Priority||'info'}</span>
         <span class="pill pill-platform">${item.Platform||'All'}</span>
-        ${condBadge}${nagBadge}${disBadge}
+        ${nagBadge}${disBadge}
       </div>
       <div class="card-body">${(item.Text||'').substring(0,120)}${(item.Text||'').length>120?'...':''}</div>
       ${item.StartDate||item.EndDate ? `<div class="card-footer" style="font-size:11px;color:var(--muted)">${item.StartDate?'From '+fmtDate(item.StartDate):''}${item.EndDate?' Until '+fmtDate(item.EndDate):''}</div>` : ''}
@@ -564,89 +522,59 @@ function renderSupportList() {
 function fmtDate(d) { try { return new Date(d).toLocaleDateString() } catch { return d } }
 
 // ---- Edit announcement -------------------------------------------------------
-function newAnnouncement(type) {
-  const id = 'ann-' + Date.now()
-  const item = {
-    id, Platform:'All', Enabled:true, Priority:'info',
-    Title:'', Text:'', Details:'', StartDate:null, EndDate:null,
-    NagEnabled:false, NagIntervalMinutes:30, Links:[]
-  }
-  if (type==='Targeted') { item.Condition = { Type:'Registry', Path:'', Name:'', Value:'' }; item.AppendToDefault = false }
-  state.data.Data.Announcements[type].push(item)
+function newAnnouncement() {
+  const id   = 'ann-' + Date.now()
+  const item = { id, Platform:'All', Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, Links:[] }
+  state.data.Data.Announcements.Default.push(item)
   renderAll()
-  editAnnouncement(id, type)
+  editAnnouncement(id)
 }
 
-function editAnnouncement(id, type) {
-  const arr = state.data.Data.Announcements[type]
-  const item = arr.find(a => a.id === id)
+function editAnnouncement(id) {
+  const item = state.data.Data.Announcements.Default.find(a => a.id === id)
   if (!item) return
 
   state.editingId      = id
-  state.editingType    = type
   state.editingSection = 'announcement'
 
-  $('editTitle').textContent = type==='Targeted' ? 'Edit Targeted Announcement' : 'Edit Default Announcement'
-  $('editId').value      = id
-  $('editType').value    = type
-  $('fTitle').value      = item.Title || ''
-  $('fText').value       = item.Text  || ''
-  $('fDetails').value    = item.Details || ''
-  $('fPlatform').value   = item.Platform || 'All'
-  $('fEnabled').checked  = item.Enabled !== false
-  $('fNag').checked      = item.NagEnabled || false
+  $('editTitle').textContent = 'Edit Announcement'
+  $('editId').value       = id
+  $('fTitle').value       = item.Title   || ''
+  $('fText').value        = item.Text    || ''
+  $('fDetails').value     = item.Details || ''
+  $('fPlatform').value    = item.Platform || 'All'
+  $('fEnabled').checked   = item.Enabled !== false
+  $('fNag').checked       = item.NagEnabled || false
   $('fNagInterval').value = item.NagIntervalMinutes || 30
-  $('fStartDate').value  = item.StartDate ? toLocalDT(item.StartDate) : ''
-  $('fEndDate').value    = item.EndDate   ? toLocalDT(item.EndDate)   : ''
+  $('fStartDate').value   = item.StartDate ? toLocalDT(item.StartDate) : ''
+  $('fEndDate').value     = item.EndDate   ? toLocalDT(item.EndDate)   : ''
 
   setPriority(item.Priority || 'info')
   renderLinks(item.Links || [])
-
-  $('targetingSection').style.display = type==='Targeted' ? '' : 'none'
-  if (type==='Targeted' && item.Condition) {
-    $('fCondType').value  = item.Condition.Type  || 'Registry'
-    $('fCondPath').value  = item.Condition.Path  || ''
-    $('fCondName').value  = item.Condition.Name  || ''
-    $('fCondValue').value = item.Condition.Value || ''
-    $('fAppend').checked  = item.AppendToDefault || false
-  }
 
   $('editPanel').style.display = ''
   $('editPanel').scrollIntoView({ behavior:'smooth', block:'start' })
 }
 
 function saveAnnouncement() {
-  const id   = $('editId').value
-  const type = $('editType').value
-  const arr  = state.data.Data.Announcements[type]
-  const idx  = arr.findIndex(a => a.id === id)
+  const id  = $('editId').value
+  const arr = state.data.Data.Announcements.Default
+  const idx = arr.findIndex(a => a.id === id)
   if (idx < 0) return
 
   const item = arr[idx]
-  item.Title    = $('fTitle').value
-  item.Text     = $('fText').value
-  item.Details  = $('fDetails').value
+  item.Title   = $('fTitle').value
+  item.Text    = $('fText').value
+  item.Details = $('fDetails').value
   item.Platform = $('fPlatform').value
   item.Enabled  = $('fEnabled').checked
-  item.Priority = document.querySelector('.priority-btn.active-'+document.querySelector('[data-p]')?.getAttribute('data-p'))?.getAttribute('data-p') || 'info'
-  // get active priority
   const activePB = document.querySelector('.priority-btn[class*="active-"]')
   if (activePB) item.Priority = activePB.getAttribute('data-p')
-  item.NagEnabled          = $('fNag').checked
-  item.NagIntervalMinutes  = parseInt($('fNagInterval').value) || 30
+  item.NagEnabled         = $('fNag').checked
+  item.NagIntervalMinutes = parseInt($('fNagInterval').value) || 30
   item.StartDate = $('fStartDate').value ? new Date($('fStartDate').value).toISOString() : null
   item.EndDate   = $('fEndDate').value   ? new Date($('fEndDate').value).toISOString()   : null
   item.Links     = getLinks()
-
-  if (type==='Targeted') {
-    item.Condition = {
-      Type:  $('fCondType').value,
-      Path:  $('fCondPath').value,
-      Name:  $('fCondName').value,
-      Value: $('fCondValue').value
-    }
-    item.AppendToDefault = $('fAppend').checked
-  }
 
   $('editPanel').style.display = 'none'
   renderAll()
@@ -655,8 +583,8 @@ function saveAnnouncement() {
 
 function deleteAnnouncement() {
   if (!confirm('Delete this announcement?')) return
-  const id = $('editId').value; const type = $('editType').value
-  const arr = state.data.Data.Announcements[type]
+  const id  = $('editId').value
+  const arr = state.data.Data.Announcements.Default
   const idx = arr.findIndex(a => a.id === id)
   if (idx >= 0) arr.splice(idx, 1)
   $('editPanel').style.display = 'none'
