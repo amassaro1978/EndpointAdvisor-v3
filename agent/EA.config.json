@@ -1,6 +1,6 @@
 {
-  "ContentDataUrl": "https://raw.githubusercontent.com/amassaro1978/EndpointAdvisor-v3/main/ContentData.json",
-  "GitHubToken": "PASTE_YOUR_TOKEN_HERE",
+  "ContentDataUrl": "https://api.github.com/repos/amassaro1978/EndpointAdvisor-v3/contents/ContentData.json",
+  "GitHubToken": "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",
   "RefreshInterval": 900,
   "Platform": "Windows",
   "LogPath": "C:\\ProgramData\\EndpointAdvisor\\EA.log",

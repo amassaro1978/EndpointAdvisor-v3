@@ -55,8 +55,12 @@ $Script:LastNagTime      = @{}
 
 function Get-ContentData {
     try {
-        $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; ErrorAction = 'Stop' }
-        if ($Config.GitHubToken) { $params.Headers = @{ Authorization = "token $($Config.GitHubToken)" } }
+        $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
+        if ($Config.GitHubToken) {
+            $headers['Authorization'] = "token $($Config.GitHubToken)"
+            $headers['Accept']        = 'application/vnd.github.raw+json'
+        }
+        $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
         $raw  = Invoke-WebRequest @params
         $data = $raw.Content | ConvertFrom-Json
         Write-Log "Content fetched OK (v$($data.contentVersion))"
@@ -216,8 +220,12 @@ function Start-AnnouncementsLoad {
         $items    = @()
         $hasUnread = $false
         try {
-            $params = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; ErrorAction = 'Stop' }
-            if ($GitHubToken) { $params.Headers = @{ Authorization = "token $GitHubToken" } }
+            $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
+            if ($GitHubToken) {
+                $headers['Authorization'] = "token $GitHubToken"
+                $headers['Accept']        = 'application/vnd.github.raw+json'
+            }
+            $params = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
             $raw  = Invoke-WebRequest @params
             $data = $raw.Content | ConvertFrom-Json
             $now  = Get-Date
