@@ -1,6 +1,6 @@
 {
   "schemaVersion": "3.0.0",
-  "contentVersion": "2026.02.24.1",
+  "contentVersion": "2026.02.24.2",
   "Data": {
     "Announcements": {
       "Default": [
@@ -16,6 +16,24 @@
           "NagEnabled": false,
           "NagIntervalMinutes": 30,
           "Links": []
+        },
+        {
+          "id": "ann-1771964115570",
+          "Enabled": true,
+          "Priority": "critical",
+          "Title": "new test",
+          "Text": "test test test test",
+          "Details": "test 1/4",
+          "StartDate": "2026-02-23T20:19:00.000Z",
+          "EndDate": null,
+          "NagEnabled": false,
+          "NagIntervalMinutes": 30,
+          "Links": [
+            {
+              "Name": "Test url",
+              "Url": "https://www.test.com"
+            }
+          ]
         }
       ]
     },
