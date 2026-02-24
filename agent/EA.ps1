@@ -61,8 +61,15 @@ function Get-ContentData {
             $headers['Accept']        = 'application/vnd.github.raw+json'
         }
         $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
-        $raw  = Invoke-WebRequest @params
-        $data = $raw.Content | ConvertFrom-Json
+        $raw     = Invoke-WebRequest @params
+        $parsed  = $raw.Content | ConvertFrom-Json
+        # GitHub API returns a base64 envelope when Accept header isn't honoured
+        if ($parsed.PSObject.Properties['content'] -and $parsed.PSObject.Properties['encoding']) {
+            $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($parsed.content -replace '\s','')))
+            $data    = $decoded | ConvertFrom-Json
+        } else {
+            $data = $parsed
+        }
         Write-Log "Content fetched OK (v$($data.contentVersion))"
         return $data
     } catch {
@@ -226,8 +233,14 @@ function Start-AnnouncementsLoad {
                 $headers['Accept']        = 'application/vnd.github.raw+json'
             }
             $params = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
-            $raw  = Invoke-WebRequest @params
-            $data = $raw.Content | ConvertFrom-Json
+            $raw    = Invoke-WebRequest @params
+            $parsed = $raw.Content | ConvertFrom-Json
+            if ($parsed.PSObject.Properties['content'] -and $parsed.PSObject.Properties['encoding']) {
+                $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($parsed.content -replace '\s','')))
+                $data    = $decoded | ConvertFrom-Json
+            } else {
+                $data = $parsed
+            }
             $now  = Get-Date
 
             $all = @()
