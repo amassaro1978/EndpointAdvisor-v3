@@ -9,7 +9,7 @@
 #>
 
 # ---- Config ------------------------------------------------------------------
-$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ConfigPath = Join-Path $ScriptDir "EA.config.json"
 
 $DefaultConfig = @{
@@ -51,6 +51,7 @@ $Script:CachedContent    = $null
 $Script:ContentVersion   = $null
 $Script:SeenIds          = [System.Collections.Generic.HashSet[string]]::new()
 $Script:LastNagTime      = @{}
+$Script:ActiveRunspaces  = [System.Collections.Generic.List[object]]::new()
 
 function Get-ContentData {
     try {
@@ -58,16 +59,20 @@ function Get-ContentData {
         if ($Config.GitHubToken) { $headers['Authorization'] = "token $($Config.GitHubToken)" }
         $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
         $raw    = Invoke-WebRequest @params
-        $data   = $raw.Content | ConvertFrom-Json
-        Write-Log "Content fetched OK (v$($data.contentVersion))"
-        return $data
+        try {
+            $data = $raw.Content | ConvertFrom-Json
+            Write-Log "Content fetched OK (v$($data.contentVersion))"
+            return $data
+        } catch {
+            $preview = $raw.Content.Substring(0, [Math]::Min(300, $raw.Content.Length))
+            Write-Log "JSON parse failed. HTTP $($raw.StatusCode). Body: $preview"
+            return $null
+        }
     } catch {
         Write-Log "Content fetch failed: $_"
         return $null
     }
 }
-
-# Targeting removed  add back later if needed
 
 function Get-RelevantAnnouncements($data) {
     if (-not $data -or -not $data.Data -or -not $data.Data.Announcements) { return @() }
@@ -104,11 +109,16 @@ try {
 $Script:IconNormal = Join-Path $ScriptDir "EA_LOGO.ico"
 $Script:IconAlert  = Join-Path $ScriptDir "EA_LOGO_MSG.ico"
 
+Write-Log "ScriptDir=$ScriptDir IconNormal=$($Script:IconNormal) Exists=$(Test-Path $Script:IconNormal)"
+
 function Get-TrayIcon([bool]$hasUnread = $false) {
     $ico = if ($hasUnread -and (Test-Path $Script:IconAlert)) { $Script:IconAlert }
            elseif (Test-Path $Script:IconNormal) { $Script:IconNormal }
            else { $null }
-    if ($ico) { return New-Object System.Drawing.Icon($ico) }
+    if ($ico) {
+        try { return New-Object System.Drawing.Icon($ico) }
+        catch { return [System.Drawing.SystemIcons]::Information }
+    }
     return [System.Drawing.SystemIcons]::Information
 }
 
@@ -126,6 +136,14 @@ function New-TrayIcon {
     $null = $menu.Items.Add((& $mi "Refresh Now"    { Start-ContentRefresh }))
     $null = $menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
     $null = $menu.Items.Add((& $mi "Exit" {
+        # Kill all background runspaces
+        foreach ($rs in $Script:ActiveRunspaces) {
+            try { $rs.Runspace.Close(); $rs.Runspace.Dispose(); $rs.Dispose() } catch {}
+        }
+        $Script:ActiveRunspaces.Clear()
+        if ($Script:DashboardWindow) {
+            try { $Script:DashboardWindow.Close() } catch {}
+        }
         $Script:TrayIcon.Visible = $false
         $Script:TrayIcon.Dispose()
         [System.Windows.Forms.Application]::Exit()
@@ -162,6 +180,19 @@ function Show-Toast($title, $message, $priority) {
     }
 }
 
+# ---- Helper: start a tracked runspace ----------------------------------------
+function Start-TrackedRunspace {
+    param([scriptblock]$Script, [hashtable]$Parameters)
+    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
+    $ps = [System.Management.Automation.PowerShell]::Create(); $ps.Runspace = $rs
+    [void]$ps.AddScript($Script)
+    [void]$ps.AddParameters($Parameters)
+    [void]$ps.BeginInvoke()
+    $Script:ActiveRunspaces.Add($ps) | Out-Null
+    return $ps
+}
+
 # ---- WPF helpers (UI thread only) --------------------------------------------
 function New-SectionHeader($text) {
     $b = New-Object System.Windows.Controls.Border
@@ -182,18 +213,15 @@ function New-InfoText($text) {
 function Start-AnnouncementsLoad {
     param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal)
 
-    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-    $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
-    $ps = [System.Management.Automation.PowerShell]::Create(); $ps.Runspace = $rs
-
-    [void]$ps.AddScript({
+    Start-TrackedRunspace -Script {
         param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal)
 
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Drawing
 
         # Fetch JSON
-        $items    = @()
+        $items     = @()
         $hasUnread = $false
+        $fetchErr  = $null
         try {
             $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
             if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
@@ -209,7 +237,9 @@ function Start-AnnouncementsLoad {
                 $items += $item
                 $hasUnread = $true
             }
-        } catch {}
+        } catch {
+            $fetchErr = $_.ToString()
+        }
 
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
@@ -224,7 +254,9 @@ function Start-AnnouncementsLoad {
                 $tb
             }
 
-            if ($items.Count -eq 0) {
+            if ($fetchErr) {
+                $Container.Children.Add((& $mkTb "Failed to load announcements." '#EF4444')) | Out-Null
+            } elseif ($items.Count -eq 0) {
                 $Container.Children.Add((& $mkTb "No announcements at this time.")) | Out-Null
             } else {
                 foreach ($a in $items) {
@@ -290,26 +322,19 @@ function Start-AnnouncementsLoad {
                 if ($icoPath) { $TrayIcon.Icon = New-Object System.Drawing.Icon($icoPath) }
             } catch {}
         })
-    })
-
-    [void]$ps.AddParameters(@{
+    } -Parameters @{
         Dispatcher     = $Dispatcher;     Container  = $Container
         ContentDataUrl = $ContentDataUrl; GitHubToken = $GitHubToken
-        TrayIcon   = $TrayIcon
+        TrayIcon       = $TrayIcon
         IconAlert      = $IconAlert;      IconNormal = $IconNormal
-    })
-    [void]$ps.BeginInvoke()
+    }
 }
 
 # ---- Async section: BigFix ---------------------------------------------------
 function Start-BigFixLoad {
     param($Dispatcher, $Container, $ScriptDir)
 
-    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-    $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
-    $ps = [System.Management.Automation.PowerShell]::Create(); $ps.Runspace = $rs
-
-    [void]$ps.AddScript({
+    Start-TrackedRunspace -Script {
         param($Dispatcher, $Container, $ScriptDir)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
@@ -319,7 +344,7 @@ function Start-BigFixLoad {
             if (Test-Path $reg) {
                 $v = (Get-ItemProperty $reg -ErrorAction Stop).'value'
                 if ($v -eq '1') {
-                    $resp = Invoke-RestMethod "http://127.0.0.1:52311/api/offers" -TimeoutSec 10 -ErrorAction Stop
+                    $resp = Invoke-RestMethod "http://127.0.0.1:52311/api/offers" -TimeoutSec 5 -ErrorAction Stop
                     $available = $true
                     if ($resp -and $resp.offers) {
                         foreach ($o in $resp.offers) { $offers += [PSCustomObject]@{ Id=$o.id; Name=$o.name; Version=$o.version } }
@@ -361,31 +386,40 @@ function Start-BigFixLoad {
                 $Container.Children.Add($btn) | Out-Null
             }
         })
-    })
-    [void]$ps.AddParameters(@{ Dispatcher=$Dispatcher; Container=$Container; ScriptDir=$ScriptDir })
-    [void]$ps.BeginInvoke()
+    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; ScriptDir=$ScriptDir }
 }
 
 # ---- Async section: Windows Update -------------------------------------------
 function Start-WULoad {
     param($Dispatcher, $Container)
 
-    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-    $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
-    $ps = [System.Management.Automation.PowerShell]::Create(); $ps.Runspace = $rs
-
-    [void]$ps.AddScript({
+    Start-TrackedRunspace -Script {
         param($Dispatcher, $Container)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
         $updates = @()
+        $timedOut = $false
         try {
-            $sess = New-Object -ComObject Microsoft.Update.Session
-            $res  = $sess.CreateUpdateSearcher().Search("IsInstalled=0 AND IsHidden=0")
-            foreach ($u in $res.Updates) {
-                $kb = if ($u.KBArticleIDs.Count -gt 0) { "KB$($u.KBArticleIDs.Item(0))" } else { "" }
-                $updates += [PSCustomObject]@{ Title=$u.Title; KB=$kb }
+            # Run WU query in a background job with 15s timeout to prevent hang
+            $job = Start-Job -ScriptBlock {
+                $sess = New-Object -ComObject Microsoft.Update.Session
+                $res  = $sess.CreateUpdateSearcher().Search("IsInstalled=0 AND IsHidden=0")
+                $out  = @()
+                foreach ($u in $res.Updates) {
+                    $kb = if ($u.KBArticleIDs.Count -gt 0) { "KB$($u.KBArticleIDs.Item(0))" } else { "" }
+                    $out += @{ Title=$u.Title; KB=$kb }
+                }
+                return $out
             }
+            $completed = $job | Wait-Job -Timeout 15
+            if ($completed) {
+                $result = Receive-Job $job
+                foreach ($r in $result) { $updates += [PSCustomObject]@{ Title=$r.Title; KB=$r.KB } }
+            } else {
+                $timedOut = $true
+                Stop-Job $job -ErrorAction SilentlyContinue
+            }
+            Remove-Job $job -Force -ErrorAction SilentlyContinue
         } catch {}
 
         $Dispatcher.Invoke([Action]{
@@ -393,7 +427,14 @@ function Start-WULoad {
             $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
             $mkT = { param($t,$c='#94A3B8',$s=12) $tb=New-Object System.Windows.Controls.TextBlock; $tb.Text=$t; $tb.Foreground=& $mkB $c; $tb.FontSize=$s; $tb.Margin="4,4,0,4"; $tb.TextWrapping="Wrap"; $tb }
 
-            if ($updates.Count -eq 0) {
+            if ($timedOut) {
+                $Container.Children.Add((& $mkT "Update check timed out. Open Windows Update to check manually.")) | Out-Null
+                $btn = New-Object System.Windows.Controls.Button
+                $btn.Content="Open Windows Update"; $btn.Background=& $mkB "#F59E0B"; $btn.Foreground=& $mkB "#0F172A"
+                $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="0,6,0,0"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"; $btn.FontWeight="SemiBold"
+                $btn.Add_Click({ Start-Process "softwarecenter:" })
+                $Container.Children.Add($btn) | Out-Null
+            } elseif ($updates.Count -eq 0) {
                 $Container.Children.Add((& $mkT "System is up to date.")) | Out-Null
             } else {
                 foreach ($u in $updates) {
@@ -409,9 +450,7 @@ function Start-WULoad {
                 $Container.Children.Add($btn) | Out-Null
             }
         })
-    })
-    [void]$ps.AddParameters(@{ Dispatcher=$Dispatcher; Container=$Container })
-    [void]$ps.BeginInvoke()
+    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
 }
 
 # ---- Dashboard ---------------------------------------------------------------
@@ -460,9 +499,11 @@ function Show-Dashboard {
     $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
     if (Test-Path $Script:IconNormal) {
-        $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
-        $bmp.BeginInit(); $bmp.UriSource = New-Object System.Uri($Script:IconNormal,[System.UriKind]::Absolute); $bmp.EndInit()
-        $window.Icon = $bmp
+        try {
+            $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+            $bmp.BeginInit(); $bmp.UriSource = New-Object System.Uri($Script:IconNormal,[System.UriKind]::Absolute); $bmp.EndInit()
+            $window.Icon = $bmp
+        } catch {}
     }
 
     $window.FindName("HostLabel").Text = $env:COMPUTERNAME
@@ -538,12 +579,22 @@ function Start-ContentRefresh {
 $Script:DashboardWindow = $null
 $Script:TrayIcon        = New-TrayIcon
 
+# Periodic refresh timer
 $timer          = New-Object System.Windows.Forms.Timer
 $timer.Interval = $Config.RefreshInterval * 1000
 $timer.Add_Tick({ Start-ContentRefresh })
 $timer.Start()
 
-Start-ContentRefresh
-Write-Log "Endpoint Advisor started on $Hostname"
+# Deferred startup refresh - fires 1s after message pump starts so UI never blocks
+$startupTimer          = New-Object System.Windows.Forms.Timer
+$startupTimer.Interval = 1000
+$startupTimer.Add_Tick({
+    $startupTimer.Stop()
+    $startupTimer.Dispose()
+    Start-ContentRefresh
+})
+$startupTimer.Start()
+
+Write-Log "Endpoint Advisor started on $Hostname (ScriptDir=$ScriptDir)"
 
 [System.Windows.Forms.Application]::Run()
