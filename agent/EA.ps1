@@ -274,8 +274,7 @@ function Start-AnnouncementsLoad {
                     $bd.Padding         = "14,10"
 
                     $sp = New-Object System.Windows.Controls.StackPanel
-                    $icon = switch($a.Priority) { 'critical'{'[!]'} 'warning'{'[*]'} default{'[i]'} }
-                    $title = if ($a.Title) { "$icon $($a.Title)" } else { $icon }
+                    $title = if ($a.Title) { $a.Title } else { "" }
                     $sp.Children.Add((& $mkTb $title '#E2E8F0' 14)) | Out-Null
 
                     if ($a.Text) {
