@@ -211,22 +211,12 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
           <textarea id="fDetails" rows="2" placeholder="Additional detail, schedule info, etc."></textarea>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>Priority</label>
-            <div class="priority-btns">
-              <button class="priority-btn active-info" data-p="info" onclick="setPriority('info')">Info</button>
-              <button class="priority-btn" data-p="warning" onclick="setPriority('warning')">Warning</button>
-              <button class="priority-btn" data-p="critical" onclick="setPriority('critical')">Critical</button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Platform</label>
-            <select id="fPlatform">
-              <option value="All">All</option>
-              <option value="Windows">Windows</option>
-              <option value="Mac">Mac</option>
-            </select>
+        <div class="form-group">
+          <label>Priority</label>
+          <div class="priority-btns">
+            <button class="priority-btn active-info" data-p="info" onclick="setPriority('info')">Info</button>
+            <button class="priority-btn" data-p="warning" onclick="setPriority('warning')">Warning</button>
+            <button class="priority-btn" data-p="critical" onclick="setPriority('critical')">Critical</button>
           </div>
         </div>
 
@@ -493,7 +483,6 @@ function renderList(containerId, items, type) {
       <div class="card-header">
         <span class="card-title">${item.Title||'(no title)'}</span>
         <span class="pill pill-${item.Priority||'info'}">${item.Priority||'info'}</span>
-        <span class="pill pill-platform">${item.Platform||'All'}</span>
         ${nagBadge}${disBadge}
       </div>
       <div class="card-body">${(item.Text||'').substring(0,120)}${(item.Text||'').length>120?'...':''}</div>
@@ -524,7 +513,7 @@ function fmtDate(d) { try { return new Date(d).toLocaleDateString() } catch { re
 // ---- Edit announcement -------------------------------------------------------
 function newAnnouncement() {
   const id   = 'ann-' + Date.now()
-  const item = { id, Platform:'All', Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, Links:[] }
+  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, Links:[] }
   state.data.Data.Announcements.Default.push(item)
   renderAll()
   editAnnouncement(id)
@@ -542,7 +531,6 @@ function editAnnouncement(id) {
   $('fTitle').value       = item.Title   || ''
   $('fText').value        = item.Text    || ''
   $('fDetails').value     = item.Details || ''
-  $('fPlatform').value    = item.Platform || 'All'
   $('fEnabled').checked   = item.Enabled !== false
   $('fNag').checked       = item.NagEnabled || false
   $('fNagInterval').value = item.NagIntervalMinutes || 30
@@ -566,8 +554,7 @@ function saveAnnouncement() {
   item.Title   = $('fTitle').value
   item.Text    = $('fText').value
   item.Details = $('fDetails').value
-  item.Platform = $('fPlatform').value
-  item.Enabled  = $('fEnabled').checked
+  item.Enabled = $('fEnabled').checked
   const activePB = document.querySelector('.priority-btn[class*="active-"]')
   if (activePB) item.Priority = activePB.getAttribute('data-p')
   item.NagEnabled         = $('fNag').checked

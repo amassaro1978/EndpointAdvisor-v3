@@ -6,7 +6,6 @@
       "Default": [
         {
           "id": "def-all-001",
-          "Platform": "All",
           "Enabled": true,
           "Priority": "info",
           "Title": "Welcome to Endpoint Advisor",
@@ -23,12 +22,17 @@
     "Support": [
       {
         "id": "support-all-001",
-        "Platform": "All",
         "Text": "Contact the IT Help Desk for assistance.",
         "Details": "- Phone: 555-555-0100\n- Email: helpdesk@yourorg.com\n- Hours: Mon-Fri 8AM-5PM",
         "Links": [
-          { "Name": "Self-Service Portal", "Url": "https://intranet.yourorg.com/it" },
-          { "Name": "Knowledge Base", "Url": "https://kb.yourorg.com" }
+          {
+            "Name": "Self-Service Portal",
+            "Url": "https://intranet.yourorg.com/it"
+          },
+          {
+            "Name": "Knowledge Base",
+            "Url": "https://kb.yourorg.com"
+          }
         ]
       }
     ]

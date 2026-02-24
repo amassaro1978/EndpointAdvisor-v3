@@ -15,7 +15,6 @@ $ConfigPath = Join-Path $ScriptDir "EA.config.json"
 $DefaultConfig = @{
     ContentDataUrl  = "https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/ContentData.json"
     RefreshInterval = 900
-    Platform        = "Windows"
     LogPath         = "C:\ProgramData\EndpointAdvisor\EA.log"
     LogMaxSizeMB    = 2
 }
@@ -80,13 +79,11 @@ function Get-ContentData {
 function Get-RelevantAnnouncements($data) {
     if (-not $data -or -not $data.Data -or -not $data.Data.Announcements) { return @() }
     $now     = Get-Date
-    $platform = $Config.Platform
-    $results  = [System.Collections.Generic.List[object]]::new()
+    $results = [System.Collections.Generic.List[object]]::new()
 
     foreach ($item in $data.Data.Announcements.Default) {
         if (-not $item) { continue }
         if ($item.Enabled -eq $false) { continue }
-        if ($item.Platform -ne "All" -and $item.Platform -ne $platform) { continue }
         if ($item.StartDate -and ([datetime]$item.StartDate) -gt $now) { continue }
         if ($item.EndDate   -and ([datetime]$item.EndDate)   -lt $now) { continue }
         $results.Add($item) | Out-Null
@@ -190,14 +187,14 @@ function New-InfoText($text) {
 
 # ---- Async section: Announcements --------------------------------------------
 function Start-AnnouncementsLoad {
-    param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $Platform, $TrayIcon, $IconAlert, $IconNormal)
+    param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal)
 
     $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
     $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
     $ps = [System.Management.Automation.PowerShell]::Create(); $ps.Runspace = $rs
 
     [void]$ps.AddScript({
-        param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $Platform, $TrayIcon, $IconAlert, $IconNormal)
+        param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal)
 
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Drawing
 
@@ -216,7 +213,6 @@ function Start-AnnouncementsLoad {
 
             foreach ($item in $data.Data.Announcements.Default) {
                 if (-not $item -or $item.Enabled -eq $false) { continue }
-                if ($item.Platform -ne "All" -and $item.Platform -ne $Platform) { continue }
                 if ($item.StartDate -and ([datetime]$item.StartDate) -gt $now) { continue }
                 if ($item.EndDate   -and ([datetime]$item.EndDate)   -lt $now) { continue }
                 $items += $item
@@ -308,7 +304,7 @@ function Start-AnnouncementsLoad {
     [void]$ps.AddParameters(@{
         Dispatcher     = $Dispatcher;     Container  = $Container
         ContentDataUrl = $ContentDataUrl; GitHubToken = $GitHubToken
-        Platform       = $Platform;       TrayIcon   = $TrayIcon
+        TrayIcon   = $TrayIcon
         IconAlert      = $IconAlert;      IconNormal = $IconNormal
     })
     [void]$ps.BeginInvoke()
@@ -506,7 +502,6 @@ function Show-Dashboard {
     $dispatcher = $window.Dispatcher
     Start-AnnouncementsLoad -Dispatcher $dispatcher -Container $annPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken `
-        -Platform $Config.Platform `
         -TrayIcon $Script:TrayIcon -IconAlert $Script:IconAlert -IconNormal $Script:IconNormal
     Start-BigFixLoad -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
     Start-WULoad     -Dispatcher $dispatcher -Container $wuPanel
