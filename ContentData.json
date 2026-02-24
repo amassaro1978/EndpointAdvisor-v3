@@ -1,47 +1,15 @@
 {
   "schemaVersion": "3.0.0",
-  "contentVersion": "2026.02.24.2",
+  "contentVersion": "2026.02.24.3",
   "Data": {
     "Announcements": {
-      "Default": [
-        {
-          "id": "def-all-001",
-          "Enabled": true,
-          "Priority": "info",
-          "Title": "Welcome to Endpoint Advisor",
-          "Text": "Your go-to hub for IT communications and alerts.",
-          "Details": "Use this tool to stay informed about upcoming maintenance, patch schedules, and important IT announcements.",
-          "StartDate": null,
-          "EndDate": null,
-          "NagEnabled": false,
-          "NagIntervalMinutes": 30,
-          "Links": []
-        },
-        {
-          "id": "ann-1771964115570",
-          "Enabled": true,
-          "Priority": "critical",
-          "Title": "new test",
-          "Text": "test test test test",
-          "Details": "test 1/4",
-          "StartDate": "2026-02-23T20:19:00.000Z",
-          "EndDate": null,
-          "NagEnabled": false,
-          "NagIntervalMinutes": 30,
-          "Links": [
-            {
-              "Name": "Test url",
-              "Url": "https://www.test.com"
-            }
-          ]
-        }
-      ]
+      "Default": []
     },
     "Support": [
       {
         "id": "support-all-001",
         "Text": "Contact the IT Help Desk for assistance.",
-        "Details": "- Phone: 555-555-0100\n- Email: helpdesk@yourorg.com\n- Hours: Mon-Fri 8AM-5PM",
+        "Details": "- Phone: \n- Email: \n- Hours: Mon-Fri 8AM-5PM",
         "Links": [
           {
             "Name": "Self-Service Portal",
