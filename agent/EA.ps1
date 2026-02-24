@@ -8,12 +8,6 @@
     a WPF system-tray dashboard. No backend server required.
 #>
 
-# ---- Proxy (corporate environments) -----------------------------------------
-try {
-    [System.Net.WebRequest]::DefaultWebProxy = [System.Net.WebRequest]::GetSystemWebProxy()
-    [System.Net.WebRequest]::DefaultWebProxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
-} catch {}
-
 # ---- Config ------------------------------------------------------------------
 $ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ConfigPath = Join-Path $ScriptDir "EA.config.json"
@@ -64,14 +58,9 @@ function Get-ContentData {
         if ($Config.GitHubToken) { $headers['Authorization'] = "token $($Config.GitHubToken)" }
         $params = @{ Uri = $Config.ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
         $raw    = Invoke-WebRequest @params
-        try {
-            $data = $raw.Content | ConvertFrom-Json
-            Write-Log "Content fetched OK (v$($data.contentVersion))"
-            return $data
-        } catch {
-            Write-Log "JSON parse failed. HTTP $($raw.StatusCode). Body preview: $($raw.Content.Substring(0,[Math]::Min(200,$raw.Content.Length)))"
-            return $null
-        }
+        $data   = $raw.Content | ConvertFrom-Json
+        Write-Log "Content fetched OK (v$($data.contentVersion))"
+        return $data
     } catch {
         Write-Log "Content fetch failed: $_"
         return $null
