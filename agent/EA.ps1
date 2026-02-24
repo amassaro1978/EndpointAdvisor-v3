@@ -471,7 +471,7 @@ function Show-Dashboard {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Endpoint Advisor" Width="620" Height="740"
-        WindowStartupLocation="CenterScreen" Background="#0F172A">
+        WindowStartupLocation="CenterScreen" Background="#0F172A" ShowInTaskbar="False">
     <Window.Resources>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#E2E8F0"/>
