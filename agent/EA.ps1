@@ -452,6 +452,66 @@ function Start-WULoad {
     } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
 }
 
+# ---- Async section: Support --------------------------------------------------
+function Start-SupportLoad {
+    param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken)
+
+    Start-TrackedRunspace -Script {
+        param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken)
+        Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+
+        $support = @()
+        try {
+            $headers = @{ 'User-Agent' = 'EndpointAdvisor' }
+            if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
+            $params = @{ Uri = $ContentDataUrl; UseBasicParsing = $true; TimeoutSec = 20; Headers = $headers; ErrorAction = 'Stop' }
+            $raw    = Invoke-WebRequest @params
+            $data   = $raw.Content | ConvertFrom-Json
+            if ($data.Data.Support) { $support = @($data.Data.Support) }
+        } catch {}
+
+        $Dispatcher.Invoke([Action]{
+            $Container.Children.Clear()
+            $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
+            $mkT = { param($t,$c='#94A3B8',$s=12) $tb=New-Object System.Windows.Controls.TextBlock; $tb.Text=$t; $tb.Foreground=& $mkB $c; $tb.FontSize=$s; $tb.Margin="4,4,0,4"; $tb.TextWrapping="Wrap"; $tb }
+
+            if ($support.Count -eq 0) {
+                $Container.Children.Add((& $mkT "No support info configured.")) | Out-Null
+            } else {
+                foreach ($s in $support) {
+                    $bd = New-Object System.Windows.Controls.Border
+                    $bd.Background=& $mkB "#1E293B"; $bd.BorderBrush=& $mkB "#8B5CF6"
+                    $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,8"; $bd.Padding="14,10"
+                    $sp = New-Object System.Windows.Controls.StackPanel
+                    if ($s.Text) { $sp.Children.Add((& $mkT $s.Text '#E2E8F0' 13)) | Out-Null }
+                    if ($s.Details) {
+                        $lines = $s.Details -replace '\\n',"`n"
+                        $sp.Children.Add((& $mkT $lines '#94A3B8' 12)) | Out-Null
+                    }
+                    if ($s.Links -and @($s.Links).Count -gt 0) {
+                        $lp = New-Object System.Windows.Controls.WrapPanel; $lp.Margin="0,6,0,0"
+                        foreach ($lnk in @($s.Links)) {
+                            try {
+                                $hl = New-Object System.Windows.Documents.Hyperlink
+                                $hl.NavigateUri = [uri]$lnk.Url
+                                $hl.Add_RequestNavigate({ Start-Process $_.Uri.AbsoluteUri })
+                                $hl.Inlines.Add($lnk.Name) | Out-Null
+                                $rt = New-Object System.Windows.Controls.TextBlock
+                                $rt.Inlines.Add($hl) | Out-Null
+                                $rt.Margin="0,0,12,0"; $rt.FontSize=11
+                                $lp.Children.Add($rt) | Out-Null
+                            } catch {}
+                        }
+                        $sp.Children.Add($lp) | Out-Null
+                    }
+                    $bd.Child = $sp
+                    $Container.Children.Add($bd) | Out-Null
+                }
+            }
+        })
+    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; ContentDataUrl=$ContentDataUrl; GitHubToken=$GitHubToken }
+}
+
 # ---- Dashboard ---------------------------------------------------------------
 function Show-Dashboard {
     $Script:TrayIcon.Icon = Get-TrayIcon $false
@@ -527,6 +587,12 @@ function Show-Dashboard {
     $wuPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($wuPanel) | Out-Null
 
+    # Support
+    $panel.Children.Add((New-SectionHeader "Support")) | Out-Null
+    $supPanel = New-Object System.Windows.Controls.StackPanel
+    $supPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
+    $panel.Children.Add($supPanel) | Out-Null
+
     $Script:DashboardWindow = $window
     $window.Show()
 
@@ -534,8 +600,10 @@ function Show-Dashboard {
     Start-AnnouncementsLoad -Dispatcher $dispatcher -Container $annPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken `
         -TrayIcon $Script:TrayIcon -IconAlert $Script:IconAlert -IconNormal $Script:IconNormal
-    Start-BigFixLoad -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
-    Start-WULoad     -Dispatcher $dispatcher -Container $wuPanel
+    Start-BigFixLoad  -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
+    Start-WULoad      -Dispatcher $dispatcher -Container $wuPanel
+    Start-SupportLoad -Dispatcher $dispatcher -Container $supPanel `
+        -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken
 }
 
 # ---- Polling / refresh -------------------------------------------------------
