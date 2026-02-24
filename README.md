@@ -1,79 +1,71 @@
-# Endpoint Advisor v3 — Backendless Edition
+# Endpoint Advisor v3
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
 ## How it works
 
 ```
-ContentData.json  ←  EA_Admin.html writes via GitHub API
-      ↓
-   (any URL — GitHub raw, IIS, file share)
-      ↓
-   EA.ps1 on 9,000 endpoints polls on a timer
+EA_Admin.html  →  commits ContentData.json to GitHub
+                        ↓
+              raw URL (no auth required)
+                        ↓
+         EA.ps1 polls on every endpoint
 ```
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `ContentData.json` | The content file. Host this anywhere — GitHub, IIS, internal CDN |
-| `admin/EA_Admin.html` | Admin dashboard. Open in any browser, no server needed |
-| `agent/EA.ps1` | PowerShell tray agent — deploy via BigFix/GPO |
-| `agent/EA.config.json` | Agent config — set the URL, refresh interval, platform |
+| `ContentData.json` | Announcements + support info. Host anywhere reachable by endpoints. |
+| `admin/EA_Admin.html` | Admin dashboard. Open in any browser — no server needed. |
+| `agent/EA.ps1` | PowerShell tray agent. Deploy via BigFix or GPO. |
+| `agent/EA.config.json` | Agent config — URL and refresh interval. |
+| `agent/EA_LOGO.ico` | Tray icon (normal state). |
+| `agent/EA_LOGO_MSG.ico` | Tray icon (unread announcement state). |
 
 ## Setup
 
 ### 1. Host ContentData.json
-Put it anywhere reachable by endpoints:
-- Internal GitHub (raw URL)
-- IIS static file
-- Network share served via HTTP
-- Any internal web server
+
+Recommended: internal GitHub repo set to **Internal** visibility.
+
+Use the raw URL — no token required:
+```
+https://github.yourcompany.com/raw/IT/EndpointAdvisor/main/ContentData.json
+```
 
 ### 2. Configure the agent
-Edit `EA.config.json`:
+
+Edit `agent/EA.config.json`:
 ```json
 {
-  "ContentDataUrl":  "https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/ContentData.json",
+  "ContentDataUrl": "https://github.yourcompany.com/raw/IT/EndpointAdvisor/main/ContentData.json",
+  "GitHubToken": "",
   "RefreshInterval": 900,
-  "Platform":        "Windows"
+  "LogPath": "C:\\ProgramData\\EndpointAdvisor\\EA.log",
+  "LogMaxSizeMB": 2
 }
 ```
 
-### 3. Deploy the agent
-Via BigFix or GPO — copy the agent folder to `C:\ProgramData\EndpointAdvisor\`
-and run at logon:
+### 3. Deploy to endpoints
+
+Copy all 4 files to a folder on the endpoint (e.g. `C:\Program Files\EndpointAdvisor\`) and run at logon via BigFix or GPO:
+
 ```
-powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\ProgramData\EndpointAdvisor\EA.ps1"
+powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\EndpointAdvisor\EA.ps1"
 ```
 
-### 4. Use the admin dashboard
-Open `EA_Admin.html` in a browser.
-- Enter your GitHub token + repo details in the sidebar
-- Click **Load from GitHub** to pull the current JSON
-- Add/edit/delete announcements visually
-- Click **Commit to GitHub** — agents pick it up on next poll
+### 4. Manage announcements
 
-No token? Use **Download JSON**, update the file manually, re-upload to your host.
+Open `admin/EA_Admin.html` in a browser. You need a GitHub PAT with write access to the repo.
 
-## Targeting
-
-Targeted announcements are evaluated **client-side** by the agent.
-The JSON condition is checked against the local machine (registry, etc.) — no server logic needed.
-
-```json
-{
-  "Condition": {
-    "Type":  "Registry",
-    "Path":  "HKLM:\\SOFTWARE\\YourOrg\\Targeting",
-    "Name":  "Group",
-    "Value": "IT"
-  }
-}
-```
+1. Enter your token + repo details in the sidebar
+2. Click **Load from GitHub**
+3. Add or edit announcements
+4. Click **Commit to GitHub** — endpoints pick it up on next poll
 
 ## Scale
 
-- 9,000 endpoints polling a static file every 15 min = trivial load on any web server
-- No concurrent writes — agents only read
-- No database — nothing to maintain or patch beyond the JSON file itself
+- Endpoints poll a static file — no database, no concurrency issues
+- 9,000 endpoints at 15-min intervals = ~10 req/sec — trivial for any web server or GitHub CDN
+- Agents read only — nothing on the endpoint can modify the content
