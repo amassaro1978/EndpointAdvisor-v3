@@ -366,11 +366,24 @@ async function loadFromGitHub() {
 }
 
 async function saveToGitHub() {
-  if (!state.data) { toast('No data loaded', 'error'); return }
+  if (!state.data) { toast('No data loaded — click "Load from GitHub" first', 'error'); return }
   saveConfig()
   const cfg = getGHConfig()
   if (!cfg.token)             { toast('GitHub token required to save', 'error'); return }
   if (!cfg.owner || !cfg.repo){ toast('Enter owner and repo', 'error'); return }
+
+  // Auto-fetch current SHA if missing — GitHub requires it to update an existing file
+  if (!state.sha) {
+    try {
+      setStatus('fetching SHA...')
+      const shaUrl = `${cfg.apiBase}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}?ref=${cfg.branch}`
+      const shaRes = await fetch(shaUrl, { headers: { Authorization: `token ${cfg.token}` } })
+      if (shaRes.ok) {
+        const meta = await shaRes.json()
+        state.sha = meta.sha
+      }
+    } catch(e) { /* non-fatal: let GitHub reject if file truly does not exist */ }
+  }
 
   bumpVersion()
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(state.data, null, 2))))
@@ -382,7 +395,6 @@ async function saveToGitHub() {
   }
 
   try {
-    const cfg = getGHConfig()
     const url = `${cfg.apiBase}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`
     const res = await fetch(url, {
       method: 'PUT',
