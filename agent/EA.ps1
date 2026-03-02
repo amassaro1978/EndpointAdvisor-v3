@@ -202,7 +202,7 @@ function New-SectionHeader($text) {
     $b.CornerRadius = "4"; $b.Padding = "10,6"; $b.Margin = "0,12,0,6"
     $tb = New-Object System.Windows.Controls.TextBlock
     $tb.Text = $text; $tb.FontSize = 14; $tb.FontWeight = "SemiBold"
-    $tb.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#E2E8F0")
+    $tb.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#FFFFFF")
     $b.Child = $tb; $b
 }
 function New-InfoText($text) {
@@ -268,7 +268,7 @@ function Start-AnnouncementsLoad {
                         default    { '#3B82F6' }
                     }
                     $bd = New-Object System.Windows.Controls.Border
-                    $bd.Background      = & $mkBrush "#1E293B"
+                    $bd.Background      = & $mkBrush "#FFFFFF"
                     $bd.BorderBrush     = & $mkBrush $borderColor
                     $bd.BorderThickness = "3,0,0,0"
                     $bd.CornerRadius    = "6"
@@ -277,7 +277,7 @@ function Start-AnnouncementsLoad {
 
                     $sp = New-Object System.Windows.Controls.StackPanel
                     $title = if ($a.Title) { $a.Title } else { "" }
-                    $sp.Children.Add((& $mkTb $title '#E2E8F0' 14)) | Out-Null
+                    $sp.Children.Add((& $mkTb $title '#1E293B' 14)) | Out-Null
 
                     if ($a.Text) {
                         $clean = $a.Text -replace '\*\*|##|#|\*|`', ''
@@ -339,16 +339,28 @@ function Start-BigFixLoad {
         param($Dispatcher, $Container, $ScriptDir)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
-        $available = $false; $offers = @()
+        $available = $false; $updateOffers = @(); $otherOffers = @()
         try {
-            $reg = "HKLM:\SOFTWARE\WOW6432Node\BigFix\EnterpriseClient\Settings\Client\_BESClient_LocalAPI_Enable"
-            if (Test-Path $reg) {
-                $v = (Get-ItemProperty $reg -ErrorAction Stop).'value'
-                if ($v -eq '1') {
-                    $resp = Invoke-RestMethod "http://127.0.0.1:52311/api/offers" -TimeoutSec 5 -ErrorAction Stop
-                    $available = $true
-                    if ($resp -and $resp.offers) {
-                        foreach ($o in $resp.offers) { $offers += [PSCustomObject]@{ Id=$o.id; Name=$o.name; Version=$o.version } }
+            # Check if REST API is enabled — try both known registry key names
+            $apiEnabled = $false
+            foreach ($keyName in @('_BESClient_REST_Enable','_BESClient_LocalAPI_Enable')) {
+                $reg = "HKLM:\SOFTWARE\WOW6432Node\BigFix\EnterpriseClient\Settings\Client\$keyName"
+                if (Test-Path $reg) {
+                    $v = (Get-ItemProperty $reg -ErrorAction SilentlyContinue).'value'
+                    if ($v -eq '1') { $apiEnabled = $true; break }
+                }
+            }
+            if ($apiEnabled) {
+                $resp = Invoke-RestMethod "http://127.0.0.1:52311/api/offers" -TimeoutSec 5 -ErrorAction Stop
+                $available = $true
+                if ($resp -and $resp.offers) {
+                    foreach ($o in $resp.offers) {
+                        $offer = [PSCustomObject]@{ Id=$o.id; Name=$o.name; Version=$o.version }
+                        if ($o.name -like 'Update:*') {
+                            $updateOffers += $offer
+                        } else {
+                            $otherOffers += $offer
+                        }
                     }
                 }
             }
@@ -357,34 +369,89 @@ function Start-BigFixLoad {
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
             $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
-            $mkT = { param($t,$c='#94A3B8',$s=12) $tb=New-Object System.Windows.Controls.TextBlock; $tb.Text=$t; $tb.Foreground=& $mkB $c; $tb.FontSize=$s; $tb.Margin="4,4,0,4"; $tb.TextWrapping="Wrap"; $tb }
+            $mkT = { param($t,$c='#64748B',$s=12) $tb=New-Object System.Windows.Controls.TextBlock; $tb.Text=$t; $tb.Foreground=& $mkB $c; $tb.FontSize=$s; $tb.Margin="4,4,0,4"; $tb.TextWrapping="Wrap"; $tb }
 
-            if ($available -and $offers.Count -gt 0) {
-                foreach ($o in $offers) {
-                    $bd = New-Object System.Windows.Controls.Border
-                    $bd.Background=& $mkB "#1E293B"; $bd.BorderBrush=& $mkB "#10B981"; $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,8"; $bd.Padding="14,10"
-                    $dk = New-Object System.Windows.Controls.DockPanel
-                    $btn = New-Object System.Windows.Controls.Button
-                    $btn.Content="Install"; $btn.Background=& $mkB "#10B981"; $btn.Foreground=& $mkB "#FFF"
-                    $btn.BorderThickness="0"; $btn.Padding="12,4"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.Tag=$o.Id
-                    $btn.Add_Click({ try { Invoke-RestMethod "http://127.0.0.1:52311/api/offers/$($this.Tag)/accept" -Method Post -TimeoutSec 15 | Out-Null; [System.Windows.MessageBox]::Show("Submitted.","Endpoint Advisor","OK","Information") } catch { [System.Windows.MessageBox]::Show("Failed: $_","Endpoint Advisor","OK","Error") } })
-                    [System.Windows.Controls.DockPanel]::SetDock($btn,[System.Windows.Controls.Dock]::Right)
-                    $dk.Children.Add($btn) | Out-Null
-                    $inf = New-Object System.Windows.Controls.StackPanel
-                    $inf.Children.Add((& $mkT $o.Name '#E2E8F0' 13)) | Out-Null
-                    if ($o.Version) { $inf.Children.Add((& $mkT "Version: $($o.Version)")) | Out-Null }
-                    $dk.Children.Add($inf) | Out-Null
-                    $bd.Child = $dk; $Container.Children.Add($bd) | Out-Null
-                }
-            } elseif ($available) {
-                $Container.Children.Add((& $mkT "No software offers available.")) | Out-Null
-            } else {
-                $Container.Children.Add((& $mkT "BigFix Local API not available.")) | Out-Null
+            if (-not $available) {
+                $Container.Children.Add((& $mkT "BigFix REST API not available. Enable _BESClient_REST_Enable on this device.")) | Out-Null
                 $btn = New-Object System.Windows.Controls.Button
                 $btn.Content="Open BigFix Self Service"; $btn.Background=& $mkB "#6366F1"; $btn.Foreground=& $mkB "#FFF"
                 $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="4,4,0,4"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"
                 $btn.Add_Click({ $p="C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe"; if(Test-Path $p){Start-Process $p}else{[System.Windows.MessageBox]::Show("Not installed.","Endpoint Advisor","OK","Warning")} })
                 $Container.Children.Add($btn) | Out-Null
+                return
+            }
+
+            # Software Updates (offers starting with "Update:")
+            if ($updateOffers.Count -gt 0) {
+                $Container.Children.Add((& $mkT "$($updateOffers.Count) software update(s) available" '#D97706' 12)) | Out-Null
+                foreach ($o in $updateOffers) {
+                    $bd = New-Object System.Windows.Controls.Border
+                    $bd.Background=& $mkB "#FFFBEB"; $bd.BorderBrush=& $mkB "#D97706"
+                    $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="12,8"
+                    $dk = New-Object System.Windows.Controls.DockPanel
+
+                    $btn = New-Object System.Windows.Controls.Button
+                    $btn.Content="Update"; $btn.Background=& $mkB "#2563EB"; $btn.Foreground=& $mkB "#FFF"
+                    $btn.BorderThickness="0"; $btn.Padding="14,5"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand
+                    $btn.FontWeight="SemiBold"; $btn.Tag=$o.Id
+                    $btn.Add_Click({
+                        $offerId = $this.Tag
+                        $this.IsEnabled = $false; $this.Content = "Installing..."
+                        try {
+                            Invoke-RestMethod "http://127.0.0.1:52311/api/offers/$offerId/accept" -Method Post -TimeoutSec 30 | Out-Null
+                            $this.Content = "Triggered"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#059669')
+                        } catch {
+                            $this.Content = "Failed"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#DC2626')
+                            $this.IsEnabled = $true
+                        }
+                    })
+                    [System.Windows.Controls.DockPanel]::SetDock($btn,[System.Windows.Controls.Dock]::Right)
+                    $dk.Children.Add($btn) | Out-Null
+
+                    $inf = New-Object System.Windows.Controls.StackPanel
+                    # Strip "Update: " prefix for cleaner display
+                    $displayName = $o.Name -replace '^Update:\s*', ''
+                    $inf.Children.Add((& $mkT $displayName '#1E293B' 13)) | Out-Null
+                    if ($o.Version) { $inf.Children.Add((& $mkT "Version: $($o.Version)" '#64748B' 11)) | Out-Null }
+                    $dk.Children.Add($inf) | Out-Null
+                    $bd.Child = $dk; $Container.Children.Add($bd) | Out-Null
+                }
+            } else {
+                $Container.Children.Add((& $mkT "All software is up to date." '#059669')) | Out-Null
+            }
+
+            # Other self-service offers (non-update)
+            if ($otherOffers.Count -gt 0) {
+                $Container.Children.Add((& $mkT "Other available software:" '#64748B' 11)) | Out-Null
+                foreach ($o in $otherOffers) {
+                    $bd = New-Object System.Windows.Controls.Border
+                    $bd.Background=& $mkB "#F8FAFC"; $bd.BorderBrush=& $mkB "#E2E8F0"
+                    $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="12,8"
+                    $dk = New-Object System.Windows.Controls.DockPanel
+
+                    $btn = New-Object System.Windows.Controls.Button
+                    $btn.Content="Install"; $btn.Background=& $mkB "#059669"; $btn.Foreground=& $mkB "#FFF"
+                    $btn.BorderThickness="0"; $btn.Padding="12,4"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.Tag=$o.Id
+                    $btn.Add_Click({
+                        $offerId = $this.Tag
+                        $this.IsEnabled = $false; $this.Content = "Installing..."
+                        try {
+                            Invoke-RestMethod "http://127.0.0.1:52311/api/offers/$offerId/accept" -Method Post -TimeoutSec 30 | Out-Null
+                            $this.Content = "Triggered"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#059669')
+                        } catch {
+                            $this.Content = "Failed"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#DC2626')
+                            $this.IsEnabled = $true
+                        }
+                    })
+                    [System.Windows.Controls.DockPanel]::SetDock($btn,[System.Windows.Controls.Dock]::Right)
+                    $dk.Children.Add($btn) | Out-Null
+
+                    $inf = New-Object System.Windows.Controls.StackPanel
+                    $inf.Children.Add((& $mkT $o.Name '#1E293B' 13)) | Out-Null
+                    if ($o.Version) { $inf.Children.Add((& $mkT "Version: $($o.Version)" '#64748B' 11)) | Out-Null }
+                    $dk.Children.Add($inf) | Out-Null
+                    $bd.Child = $dk; $Container.Children.Add($bd) | Out-Null
+                }
             }
         })
     } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; ScriptDir=$ScriptDir }
@@ -398,56 +465,52 @@ function Start-WULoad {
         param($Dispatcher, $Container)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
-        $updates = @()
-        $timedOut = $false
+        $updates    = @()
+        $ccmMissing = $false
         try {
-            # Run WU query in a background job with 15s timeout to prevent hang
-            $job = Start-Job -ScriptBlock {
-                $sess = New-Object -ComObject Microsoft.Update.Session
-                $res  = $sess.CreateUpdateSearcher().Search("IsInstalled=0 AND IsHidden=0")
-                $out  = @()
-                foreach ($u in $res.Updates) {
-                    $kb = if ($u.KBArticleIDs.Count -gt 0) { "KB$($u.KBArticleIDs.Item(0))" } else { "" }
-                    $out += @{ Title=$u.Title; KB=$kb }
+            $raw = Get-WmiObject -Class CCM_SoftwareUpdate -Namespace ROOT\ccm\ClientSDK -ErrorAction Stop |
+                   Where-Object { $_.ComplianceState -eq 0 }
+            if ($raw) {
+                foreach ($u in $raw) {
+                    $updates += [PSCustomObject]@{
+                        Title    = $u.Name
+                        Deadline = if ($u.Deadline) { [System.Management.ManagementDateTimeConverter]::ToDateTime($u.Deadline) } else { $null }
+                    }
                 }
-                return $out
             }
-            $completed = $job | Wait-Job -Timeout 15
-            if ($completed) {
-                $result = Receive-Job $job
-                foreach ($r in $result) { $updates += [PSCustomObject]@{ Title=$r.Title; KB=$r.KB } }
-            } else {
-                $timedOut = $true
-                Stop-Job $job -ErrorAction SilentlyContinue
-            }
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-        } catch {}
+        } catch {
+            $ccmMissing = $true
+        }
 
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
             $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
             $mkT = { param($t,$c='#94A3B8',$s=12) $tb=New-Object System.Windows.Controls.TextBlock; $tb.Text=$t; $tb.Foreground=& $mkB $c; $tb.FontSize=$s; $tb.Margin="4,4,0,4"; $tb.TextWrapping="Wrap"; $tb }
 
-            if ($timedOut) {
-                $Container.Children.Add((& $mkT "Update check timed out. Open Windows Update to check manually.")) | Out-Null
-                $btn = New-Object System.Windows.Controls.Button
-                $btn.Content="Open Windows Update"; $btn.Background=& $mkB "#F59E0B"; $btn.Foreground=& $mkB "#0F172A"
-                $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="0,6,0,0"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"; $btn.FontWeight="SemiBold"
-                $btn.Add_Click({ Start-Process "softwarecenter:" })
-                $Container.Children.Add($btn) | Out-Null
+            if ($ccmMissing) {
+                $Container.Children.Add((& $mkT "ECM client not found on this device.")) | Out-Null
             } elseif ($updates.Count -eq 0) {
-                $Container.Children.Add((& $mkT "System is up to date.")) | Out-Null
+                $Container.Children.Add((& $mkT "All OS patches are up to date." '#059669')) | Out-Null
             } else {
+                $Container.Children.Add((& $mkT "$($updates.Count) patch(es) pending — please install via Software Center." '#D97706' 12)) | Out-Null
                 foreach ($u in $updates) {
                     $bd = New-Object System.Windows.Controls.Border
-                    $bd.Background=& $mkB "#1E293B"; $bd.BorderBrush=& $mkB "#F59E0B"; $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="10,8"
-                    $label = if ($u.KB) { "$($u.KB) - $($u.Title)" } else { $u.Title }
-                    $bd.Child = (& $mkT $label '#E2E8F0' 12); $Container.Children.Add($bd) | Out-Null
+                    $bd.BorderBrush=& $mkB "#D97706"; $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="10,8"
+                    $bd.Background=& $mkB "#FFFBEB"
+                    $sp = New-Object System.Windows.Controls.StackPanel
+                    $sp.Children.Add((& $mkT $u.Title '#1E293B' 12)) | Out-Null
+                    if ($u.Deadline) {
+                        $deadlineColor = if ($u.Deadline -lt [datetime]::Now.AddDays(3)) { '#DC2626' } else { '#64748B' }
+                        $sp.Children.Add((& $mkT "Deadline: $($u.Deadline.ToString('MMM d, yyyy h:mm tt'))" $deadlineColor 11)) | Out-Null
+                    }
+                    $bd.Child = $sp
+                    $Container.Children.Add($bd) | Out-Null
                 }
                 $btn = New-Object System.Windows.Controls.Button
-                $btn.Content="Install Patches"; $btn.Background=& $mkB "#F59E0B"; $btn.Foreground=& $mkB "#0F172A"
-                $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="0,6,0,0"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"; $btn.FontWeight="SemiBold"
-                $btn.Add_Click({ Start-Process "softwarecenter:" })
+                $btn.Content="Open Software Center"; $btn.Background=& $mkB "#D97706"; $btn.Foreground=& $mkB "#FFFFFF"
+                $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="0,8,0,0"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"; $btn.FontWeight="SemiBold"
+                $scPath = "$env:WinDir\CCM\SCClient.exe"
+                $btn.Add_Click({ if (Test-Path $scPath) { Start-Process $scPath } else { Start-Process "softwarecenter:" } })
                 $Container.Children.Add($btn) | Out-Null
             }
         })
@@ -482,10 +545,10 @@ function Start-SupportLoad {
             } else {
                 foreach ($s in $support) {
                     $bd = New-Object System.Windows.Controls.Border
-                    $bd.Background=& $mkB "#1E293B"; $bd.BorderBrush=& $mkB "#8B5CF6"
+                    $bd.Background=& $mkB "#F5F3FF"; $bd.BorderBrush=& $mkB "#8B5CF6"
                     $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,8"; $bd.Padding="14,10"
                     $sp = New-Object System.Windows.Controls.StackPanel
-                    if ($s.Text) { $sp.Children.Add((& $mkT $s.Text '#E2E8F0' 13)) | Out-Null }
+                    if ($s.Text) { $sp.Children.Add((& $mkT $s.Text '#1E293B' 13)) | Out-Null }
                     if ($s.Details) {
                         $lines = $s.Details -replace '\\n',"`n"
                         $sp.Children.Add((& $mkT $lines '#94A3B8' 12)) | Out-Null
@@ -514,6 +577,105 @@ function Start-SupportLoad {
     } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; ContentDataUrl=$ContentDataUrl; GitHubToken=$GitHubToken }
 }
 
+# ---- Async section: Account Information --------------------------------------
+function Start-AccountLoad {
+    param($Dispatcher, $Container)
+
+    Start-TrackedRunspace -Script {
+        param($Dispatcher, $Container)
+        Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+
+        $accountName  = $env:USERNAME
+        $displayName  = ""
+        $pwdExpiryStr = "Unknown"
+        $pwdDaysLeft  = $null
+        $pwdExpired   = $false
+
+        try {
+            # Pull AD info via ADSI (no AD module required)
+            $searcher = [adsisearcher]"(samaccountname=$accountName)"
+            $searcher.PropertiesToLoad.AddRange(@("displayName","pwdLastSet","userAccountControl","msDS-UserPasswordExpiryTimeComputed"))
+            $result = $searcher.FindOne()
+            if ($result) {
+                if ($result.Properties["displayName"].Count -gt 0) {
+                    $displayName = $result.Properties["displayName"][0]
+                }
+                # msDS-UserPasswordExpiryTimeComputed is most reliable — it accounts for fine-grained policies
+                $expiryProp = $result.Properties["msds-userpasswordexpirytimecomputed"]
+                if ($expiryProp.Count -gt 0) {
+                    $ft = $expiryProp[0]
+                    if ($ft -gt 0 -and $ft -ne [Int64]::MaxValue) {
+                        $expiryDate  = [datetime]::FromFileTime($ft)
+                        $pwdDaysLeft = [math]::Ceiling(($expiryDate - [datetime]::Now).TotalDays)
+                        $pwdExpired  = $pwdDaysLeft -lt 0
+                        $pwdExpiryStr = $expiryDate.ToString("MMMM d, yyyy")
+                    } else {
+                        $pwdExpiryStr = "Never expires"
+                    }
+                }
+            }
+        } catch {}
+
+        $Dispatcher.Invoke([Action]{
+            $Container.Children.Clear()
+            $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
+
+            $bd = New-Object System.Windows.Controls.Border
+            $bd.Background    = & $mkB "#F8FAFC"
+            $bd.BorderBrush   = & $mkB "#E2E8F0"
+            $bd.BorderThickness = "1"
+            $bd.CornerRadius  = "6"
+            $bd.Padding       = "14,12"
+            $bd.Margin        = "0,0,0,8"
+
+            $grid = New-Object System.Windows.Controls.Grid
+            $col1 = New-Object System.Windows.Controls.ColumnDefinition; $col1.Width = "Auto"
+            $col2 = New-Object System.Windows.Controls.ColumnDefinition; $col2.Width = "*"
+            $grid.ColumnDefinitions.Add($col1); $grid.ColumnDefinitions.Add($col2)
+
+            # Build account rows as an array of [label, value, color]
+            $nameVal = if ($displayName) { "$displayName ($accountName)" } else { $accountName }
+            $rows = @(
+                ,@("Account:", $nameVal, "#1E293B")
+            )
+            if ($pwdExpired) {
+                $rows += ,@("Password Expires:", "EXPIRED — please change your password", "#DC2626")
+            } elseif ($pwdExpiryStr -eq "Never expires") {
+                $rows += ,@("Password Expires:", "Never expires", "#059669")
+            } elseif ($null -ne $pwdDaysLeft) {
+                $expiryColor = if ($pwdDaysLeft -le 7) { "#DC2626" } elseif ($pwdDaysLeft -le 14) { "#D97706" } else { "#1E293B" }
+                $expiryLabel = if ($pwdDaysLeft -le 14) { "$pwdExpiryStr ($pwdDaysLeft days)" } else { $pwdExpiryStr }
+                $rows += ,@("Password Expires:", $expiryLabel, $expiryColor)
+            } else {
+                $rows += ,@("Password Expires:", $pwdExpiryStr, "#1E293B")
+            }
+
+            foreach ($r in $rows) {
+                $row = New-Object System.Windows.Controls.RowDefinition; $row.Height = "Auto"
+                $grid.RowDefinitions.Add($row)
+                $rowIdx = $grid.RowDefinitions.Count - 1
+
+                $lbl = New-Object System.Windows.Controls.TextBlock
+                $lbl.Text = $r[0]; $lbl.Foreground = & $mkB "#64748B"
+                $lbl.FontSize = 12; $lbl.Margin = "0,4,16,4"; $lbl.FontWeight = "SemiBold"
+                [System.Windows.Controls.Grid]::SetRow($lbl, $rowIdx)
+                [System.Windows.Controls.Grid]::SetColumn($lbl, 0)
+                $grid.Children.Add($lbl) | Out-Null
+
+                $val = New-Object System.Windows.Controls.TextBlock
+                $val.Text = $r[1]; $val.Foreground = & $mkB $r[2]
+                $val.FontSize = 12; $val.Margin = "0,4,0,4"
+                [System.Windows.Controls.Grid]::SetRow($val, $rowIdx)
+                [System.Windows.Controls.Grid]::SetColumn($val, 1)
+                $grid.Children.Add($val) | Out-Null
+            }
+
+            $bd.Child = $grid
+            $Container.Children.Add($bd) | Out-Null
+        })
+    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
+}
+
 # ---- Dashboard ---------------------------------------------------------------
 function Show-Dashboard {
     $Script:TrayIcon.Icon = Get-TrayIcon $false
@@ -526,10 +688,10 @@ function Show-Dashboard {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Endpoint Advisor" Width="620" Height="740"
-        WindowStartupLocation="CenterScreen" Background="#0F172A" ShowInTaskbar="False">
+        WindowStartupLocation="CenterScreen" Background="#F1F5F9" ShowInTaskbar="False">
     <Window.Resources>
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#E2E8F0"/>
+            <Setter Property="Foreground" Value="#1E293B"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
         </Style>
         <Style TargetType="Expander">
@@ -543,10 +705,10 @@ function Show-Dashboard {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <Border Grid.Row="0" Background="#1E293B" Padding="16,12">
+        <Border Grid.Row="0" Background="#4A90D9" Padding="16,12">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Endpoint Advisor" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-                <TextBlock x:Name="HostLabel" FontSize="11" Foreground="#475569" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock Text="Endpoint Advisor" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                <TextBlock x:Name="HostLabel" FontSize="11" Foreground="#DBEAFE" Margin="12,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
         <ScrollViewer Grid.Row="1" Margin="12" VerticalScrollBarVisibility="Auto">
@@ -595,6 +757,12 @@ function Show-Dashboard {
     $supPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($supPanel) | Out-Null
 
+    # Account Information
+    $panel.Children.Add((New-SectionHeader "Account Information")) | Out-Null
+    $acctPanel = New-Object System.Windows.Controls.StackPanel
+    $acctPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
+    $panel.Children.Add($acctPanel) | Out-Null
+
     $Script:DashboardWindow = $window
     $window.Show()
 
@@ -602,10 +770,11 @@ function Show-Dashboard {
     Start-AnnouncementsLoad -Dispatcher $dispatcher -Container $annPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken `
         -TrayIcon $Script:TrayIcon -IconAlert $Script:IconAlert -IconNormal $Script:IconNormal
-    Start-BigFixLoad  -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
-    Start-WULoad      -Dispatcher $dispatcher -Container $wuPanel
-    Start-SupportLoad -Dispatcher $dispatcher -Container $supPanel `
+    Start-BigFixLoad   -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
+    Start-WULoad       -Dispatcher $dispatcher -Container $wuPanel
+    Start-SupportLoad  -Dispatcher $dispatcher -Container $supPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken
+    Start-AccountLoad  -Dispatcher $dispatcher -Container $acctPanel
 }
 
 # ---- Polling / refresh -------------------------------------------------------
@@ -624,15 +793,18 @@ function Start-ContentRefresh {
             if (-not $Script:SeenIds.Contains($a.id)) {
                 $shouldNotify = $true
                 [void]$Script:SeenIds.Add($a.id)
-            } elseif ($a.NagEnabled -and $a.PSObject.Properties['NagEnabled']) {
+            } elseif ($a.Priority -eq 'critical' -and $a.NagEnabled -and $a.PSObject.Properties['NagEnabled']) {
                 $interval = if ($a.NagIntervalMinutes) { $a.NagIntervalMinutes } else { 30 }
                 $last = $Script:LastNagTime[$a.id]
                 if (-not $last -or ($now - $last).TotalMinutes -ge $interval) { $shouldNotify = $true }
             }
             if ($shouldNotify) {
                 $Script:LastNagTime[$a.id] = $now
-                $snippet = if ($a.Text) { $a.Text.Substring(0, [Math]::Min(200, $a.Text.Length)) } else { "" }
-                Show-Toast $a.Title $snippet $a.Priority
+                # Only toast/nag for critical announcements — info/warning show in dashboard only
+                if ($a.Priority -eq 'critical') {
+                    $snippet = if ($a.Text) { $a.Text.Substring(0, [Math]::Min(200, $a.Text.Length)) } else { "" }
+                    Show-Toast $a.Title $snippet $a.Priority
+                }
             }
         }
 

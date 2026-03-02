@@ -7,16 +7,16 @@
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg:       #0f172a;
-  --surface:  #1e293b;
-  --surface2: #334155;
-  --border:   #475569;
-  --text:     #e2e8f0;
-  --muted:    #94a3b8;
-  --blue:     #3b82f6;
-  --green:    #10b981;
-  --yellow:   #f59e0b;
-  --red:      #ef4444;
+  --bg:       #f1f5f9;
+  --surface:  #ffffff;
+  --surface2: #f8fafc;
+  --border:   #e2e8f0;
+  --text:     #1e293b;
+  --muted:    #64748b;
+  --blue:     #2563eb;
+  --green:    #059669;
+  --yellow:   #d97706;
+  --red:      #dc2626;
   --radius:   8px;
 }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; }
@@ -67,7 +67,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
   border-left: 4px solid var(--blue);
   padding: 14px 16px; cursor: pointer; transition: border-color .15s;
 }
-.card:hover { border-color: var(--blue); background: #1e293bdd; }
+.card:hover { border-color: var(--blue); background: #eff6ffdd; }
 .card.priority-critical { border-left-color: var(--red); }
 .card.priority-warning  { border-left-color: var(--yellow); }
 .card.priority-info     { border-left-color: var(--blue); }
@@ -79,11 +79,11 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 
 /* Pills */
 .pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
-.pill-info     { background: #1d3a6e; color: #93c5fd; }
-.pill-warning  { background: #4a3000; color: #fcd34d; }
-.pill-critical { background: #450a0a; color: #fca5a5; }
+.pill-info     { background: #dbeafe; color: #1d4ed8; }
+.pill-warning  { background: #fef3c7; color: #92400e; }
+.pill-critical { background: #fee2e2; color: #991b1b; }
 .pill-platform { background: var(--surface2); color: var(--muted); }
-.pill-targeted { background: #1a2e1a; color: #86efac; }
+.pill-targeted { background: #d1fae5; color: #065f46; }
 .pill-disabled { background: var(--surface2); color: var(--border); }
 
 /* Edit panel */
@@ -110,9 +110,9 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 /* Priority selector */
 .priority-btns { display: flex; gap: 8px; }
 .priority-btn { flex: 1; padding: 8px; border-radius: 6px; border: 2px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600; font-family: inherit; text-align: center; transition: all .15s; }
-.priority-btn.active-info     { border-color: var(--blue); color: var(--blue); background: #1d3a6e44; }
-.priority-btn.active-warning  { border-color: var(--yellow); color: var(--yellow); background: #4a300044; }
-.priority-btn.active-critical { border-color: var(--red); color: var(--red); background: #450a0a44; }
+.priority-btn.active-info     { border-color: var(--blue); color: var(--blue); background: #dbeafe; }
+.priority-btn.active-warning  { border-color: var(--yellow); color: var(--yellow); background: #fef3c7; }
+.priority-btn.active-critical { border-color: var(--red); color: var(--red); background: #fee2e2; }
 
 /* Condition block */
 .condition-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-top: 6px; }
