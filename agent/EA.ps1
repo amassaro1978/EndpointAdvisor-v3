@@ -393,35 +393,18 @@ function Start-BigFixLoad {
                     $btn.Content = "Open Self Service  —  Install Updates"; $btn.Background = & $mkB "#2563EB"; $btn.Foreground = & $mkB "#FFF"
                     $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,8,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
                     $btn.HorizontalAlignment = "Left"; $btn.FontWeight = "SemiBold"
-                    $btn.Add_Click({ Start-Process "C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe" })
+                    $btn.Add_Click({ try { Start-Process "C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe" } catch { [System.Windows.MessageBox]::Show("Could not launch Self Service: $_","Endpoint Advisor","OK","Warning") } })
                     $Container.Children.Add($btn) | Out-Null
                 } elseif ($hasBESUI) {
                     $btn = New-Object System.Windows.Controls.Button
                     $btn.Content = "Open BigFix Client UI"; $btn.Background = & $mkB "#2563EB"; $btn.Foreground = & $mkB "#FFF"
                     $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,8,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
                     $btn.HorizontalAlignment = "Left"; $btn.FontWeight = "SemiBold"
-                    $btn.Add_Click({ Start-Process "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe" })
+                    $btn.Add_Click({ try { Start-Process "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe" } catch { [System.Windows.MessageBox]::Show("Could not launch BigFix Client UI: $_","Endpoint Advisor","OK","Warning") } })
                     $Container.Children.Add($btn) | Out-Null
-                }
-            } elseif ($fileFound) {
-                $Container.Children.Add((& $mkT "All applications are up to date." '#059669' 12)) | Out-Null
-                if ($null -ne $fileTime) {
-                    $Container.Children.Add((& $mkT "Last checked: $($fileTime.ToString('M/d/yyyy h:mm tt'))" '#64748B' 10)) | Out-Null
                 }
             } else {
-                $Container.Children.Add((& $mkT "BigFix update data not available." '#64748B')) | Out-Null
-                $Container.Children.Add((& $mkT "Update file not found at $fixletPath" '#94A3B8' 10)) | Out-Null
-                if ($hasSSA -or $hasBESUI) {
-                    $launchPath = if ($hasSSA) { $ssaPath } else { $besUIPath }
-                    $launchLabel = if ($hasSSA) { "Open Self Service" } else { "Open BigFix Client UI" }
-                    $btn = New-Object System.Windows.Controls.Button
-                    $btn.Content = $launchLabel; $btn.Background = & $mkB "#6366F1"; $btn.Foreground = & $mkB "#FFF"
-                    $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,4,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
-                    $btn.HorizontalAlignment = "Left"
-                    $btn.Tag = $launchPath
-                    $btn.Add_Click({ Start-Process $this.Tag })
-                    $Container.Children.Add($btn) | Out-Null
-                }
+                # No updates or file not found — show nothing
             }
         })
     } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; ScriptDir=$ScriptDir }
