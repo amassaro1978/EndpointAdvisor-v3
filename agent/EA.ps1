@@ -596,10 +596,10 @@ function Start-AccountLoad {
             }
         } catch {}
 
-        # Virtual Smart Card certificate
+        # Virtual Smart Card certificate (avoid accessing PrivateKey to prevent PIN prompt)
         try {
             $vscCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
-                $_.HasPrivateKey -and ($_.Subject -match "Virtual" -or (($_.PrivateKey.CspKeyContainerInfo.ProviderName -match "Smart Card") -eq $true))
+                $_.HasPrivateKey -and ($_.Subject -match "Virtual" -or $_.Issuer -match "Smart Card" -or $_.Issuer -match "Virtual")
             } | Sort-Object NotAfter -Descending | Select-Object -First 1
             if ($vscCert) {
                 $daysLeft = [math]::Ceiling(($vscCert.NotAfter - [datetime]::Now).TotalDays)
