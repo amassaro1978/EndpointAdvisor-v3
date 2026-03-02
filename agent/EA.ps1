@@ -569,6 +569,59 @@ function Start-AccountLoad {
             }
         } catch {}
 
+        # --- Certificate checks ---
+        $certRows = @()
+        $alertDays = 14
+
+        # YubiKey PIV certificates
+        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+        try {
+            if (Test-Path $ykmanPath) {
+                $ykInfo = & $ykmanPath info 2>$null
+                if ($ykInfo) {
+                    foreach ($slot in @("9a", "9c", "9d", "9e")) {
+                        $certPem = & $ykmanPath "piv" "certificates" "export" $slot "-" 2>$null
+                        if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                            $tempFile = [System.IO.Path]::GetTempFileName()
+                            ($certPem -join "`n") | Out-File $tempFile -Encoding ASCII
+                            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tempFile)
+                            Remove-Item $tempFile -Force
+                            $daysLeft = [math]::Ceiling(($cert.NotAfter - [datetime]::Now).TotalDays)
+                            $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#1E293B" }
+                            $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($cert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                            $certRows += ,@("YubiKey (Slot $slot):", $label, $color)
+                        }
+                    }
+                }
+            }
+        } catch {}
+
+        # Virtual Smart Card certificate
+        try {
+            $vscCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
+                $_.HasPrivateKey -and ($_.Subject -match "Virtual" -or (($_.PrivateKey.CspKeyContainerInfo.ProviderName -match "Smart Card") -eq $true))
+            } | Sort-Object NotAfter -Descending | Select-Object -First 1
+            if ($vscCert) {
+                $daysLeft = [math]::Ceiling(($vscCert.NotAfter - [datetime]::Now).TotalDays)
+                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#1E293B" }
+                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($vscCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                $certRows += ,@("Smart Card Cert:", $label, $color)
+            }
+        } catch {}
+
+        # Email signing (S/MIME) certificate
+        try {
+            $emailCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
+                $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.4"  # Secure Email OID
+            } | Sort-Object NotAfter -Descending | Select-Object -First 1
+            if ($emailCert) {
+                $daysLeft = [math]::Ceiling(($emailCert.NotAfter - [datetime]::Now).TotalDays)
+                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#1E293B" }
+                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                $certRows += ,@("Email Signing Cert:", $label, $color)
+            }
+        } catch {}
+
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
             $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
@@ -602,6 +655,9 @@ function Start-AccountLoad {
             } else {
                 $rows += ,@("Password Expires:", $pwdExpiryStr, "#1E293B")
             }
+
+            # Add certificate rows
+            foreach ($cr in $certRows) { $rows += ,$cr }
 
             foreach ($r in $rows) {
                 $row = New-Object System.Windows.Controls.RowDefinition; $row.Height = "Auto"
