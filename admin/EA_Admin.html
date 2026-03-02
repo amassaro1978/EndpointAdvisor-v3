@@ -234,10 +234,12 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
         <div class="toggle-row">
           <label class="toggle"><input type="checkbox" id="fEnabled" checked><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-          <label class="toggle" style="margin-left:24px"><input type="checkbox" id="fNag"><span class="toggle-slider"></span></label>
-          <span>Nag until acknowledged</span>
-          <input id="fNagInterval" type="number" value="30" min="5" style="width:60px;margin-left:8px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
-          <span style="font-size:11px;color:var(--muted)">min</span>
+          <span id="nagControls" style="display:none;margin-left:24px">
+            <label class="toggle"><input type="checkbox" id="fNag"><span class="toggle-slider"></span></label>
+            <span>Nag until acknowledged</span>
+            <input id="fNagInterval" type="number" value="30" min="5" style="width:60px;margin-left:8px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
+            <span style="font-size:11px;color:var(--muted)">min</span>
+          </span>
         </div>
 
         <!-- Links -->
@@ -663,6 +665,11 @@ function setPriority(p) {
   document.querySelectorAll('.priority-btn').forEach(b => {
     b.className = 'priority-btn' + (b.getAttribute('data-p')===p ? ` active-${p}` : '')
   })
+  // Only show nag controls for critical priority
+  const nagEl = document.getElementById('nagControls')
+  if (nagEl) nagEl.style.display = p === 'critical' ? '' : 'none'
+  // Reset nag if switching away from critical
+  if (p !== 'critical') { $('fNag').checked = false }
 }
 
 // ---- Tabs --------------------------------------------------------------------
