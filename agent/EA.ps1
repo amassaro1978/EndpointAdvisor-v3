@@ -716,6 +716,18 @@ function Show-Dashboard {
     $acctPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($acctPanel) | Out-Null
 
+    # Windows Version footer
+    $osInfo = Get-CimInstance Win32_OperatingSystem
+    $build = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue)
+    $displayVersion = $build.DisplayVersion  # e.g. "25H2"
+    $productName = $osInfo.Caption -replace 'Microsoft ', ''  # e.g. "Windows 11 Enterprise"
+    $versionText = "$productName Build: $displayVersion"
+    $verBlock = New-Object System.Windows.Controls.TextBlock
+    $verBlock.Text = $versionText
+    $verBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
+    $verBlock.FontSize = 10; $verBlock.Margin = "0,16,0,4"; $verBlock.HorizontalAlignment = "Center"
+    $panel.Children.Add($verBlock) | Out-Null
+
     $Script:DashboardWindow = $window
     $window.Show()
 
