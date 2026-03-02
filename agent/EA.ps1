@@ -587,7 +587,7 @@ function Start-AccountLoad {
                             $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tempFile)
                             Remove-Item $tempFile -Force
                             $daysLeft = [math]::Ceiling(($cert.NotAfter - [datetime]::Now).TotalDays)
-                            $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#1E293B" }
+                            $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                             $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($cert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                             $certRows += ,@("YubiKey (Slot $slot):", $label, $color)
                         }
@@ -603,7 +603,7 @@ function Start-AccountLoad {
             } | Sort-Object NotAfter -Descending | Select-Object -First 1
             if ($vscCert) {
                 $daysLeft = [math]::Ceiling(($vscCert.NotAfter - [datetime]::Now).TotalDays)
-                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#1E293B" }
+                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($vscCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                 $certRows += ,@("Smart Card Cert:", $label, $color)
             }
@@ -616,7 +616,7 @@ function Start-AccountLoad {
             } | Sort-Object NotAfter -Descending | Select-Object -First 1
             if ($emailCert) {
                 $daysLeft = [math]::Ceiling(($emailCert.NotAfter - [datetime]::Now).TotalDays)
-                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#1E293B" }
+                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                 $certRows += ,@("Email Signing Cert:", $label, $color)
             }
