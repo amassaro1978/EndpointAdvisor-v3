@@ -339,118 +339,88 @@ function Start-BigFixLoad {
         param($Dispatcher, $Container, $ScriptDir)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
-        $available = $false; $updateOffers = @(); $otherOffers = @()
+        # Read BigFix update data from text file (populated by BigFix Fixlet)
+        $fixletPath = "C:\temp\X-Fixlet-Source_Count.txt"
+        $updates = @()
+        $fileFound = $false
+        $fileTime = $null
         try {
-            # Check if REST API is enabled — try both known registry key names
-            $apiEnabled = $false
-            foreach ($keyName in @('_BESClient_REST_Enable','_BESClient_LocalAPI_Enable')) {
-                $reg = "HKLM:\SOFTWARE\WOW6432Node\BigFix\EnterpriseClient\Settings\Client\$keyName"
-                if (Test-Path $reg) {
-                    $v = (Get-ItemProperty $reg -ErrorAction SilentlyContinue).'value'
-                    if ($v -eq '1') { $apiEnabled = $true; break }
-                }
-            }
-            if ($apiEnabled) {
-                $resp = Invoke-RestMethod "http://127.0.0.1:52311/api/offers" -TimeoutSec 5 -ErrorAction Stop
-                $available = $true
-                if ($resp -and $resp.offers) {
-                    foreach ($o in $resp.offers) {
-                        $offer = [PSCustomObject]@{ Id=$o.id; Name=$o.name; Version=$o.version }
-                        if ($o.name -like 'Update:*') {
-                            $updateOffers += $offer
-                        } else {
-                            $otherOffers += $offer
-                        }
-                    }
+            if (Test-Path $fixletPath) {
+                $fileFound = $true
+                $fileTime = (Get-Item $fixletPath).LastWriteTime
+                $lines = Get-Content -Path $fixletPath -ErrorAction Stop
+                foreach ($line in $lines) {
+                    $trimmed = $line.Trim()
+                    if ($trimmed.Length -gt 0) { $updates += $trimmed }
                 }
             }
         } catch {}
+
+        # Check for BigFix Self Service Application
+        $ssaPath = "C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe"
+        $besUIPath = "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe"
+        $hasSSA = Test-Path $ssaPath
+        $hasBESUI = Test-Path $besUIPath
 
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
             $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
             $mkT = { param($t,$c='#64748B',$s=12) $tb=New-Object System.Windows.Controls.TextBlock; $tb.Text=$t; $tb.Foreground=& $mkB $c; $tb.FontSize=$s; $tb.Margin="4,4,0,4"; $tb.TextWrapping="Wrap"; $tb }
 
-            if (-not $available) {
-                $Container.Children.Add((& $mkT "BigFix REST API not available. Enable _BESClient_REST_Enable on this device.")) | Out-Null
-                $btn = New-Object System.Windows.Controls.Button
-                $btn.Content="Open BigFix Self Service"; $btn.Background=& $mkB "#6366F1"; $btn.Foreground=& $mkB "#FFF"
-                $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="4,4,0,4"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"
-                $btn.Add_Click({ $p="C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe"; if(Test-Path $p){Start-Process $p}else{[System.Windows.MessageBox]::Show("Not installed.","Endpoint Advisor","OK","Warning")} })
-                $Container.Children.Add($btn) | Out-Null
-                return
-            }
+            if ($updates.Count -gt 0) {
+                # Show update count header
+                $Container.Children.Add((& $mkT "$($updates.Count) application update(s) available" '#D97706' 12)) | Out-Null
 
-            # Software Updates (offers starting with "Update:")
-            if ($updateOffers.Count -gt 0) {
-                $Container.Children.Add((& $mkT "$($updateOffers.Count) software update(s) available" '#D97706' 12)) | Out-Null
-                foreach ($o in $updateOffers) {
+                # Show each update as a card
+                foreach ($u in $updates) {
                     $bd = New-Object System.Windows.Controls.Border
-                    $bd.Background=& $mkB "#FFFBEB"; $bd.BorderBrush=& $mkB "#D97706"
-                    $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="12,8"
-                    $dk = New-Object System.Windows.Controls.DockPanel
+                    $bd.Background = & $mkB "#FFFBEB"; $bd.BorderBrush = & $mkB "#D97706"
+                    $bd.BorderThickness = "3,0,0,0"; $bd.CornerRadius = "6"; $bd.Margin = "0,0,0,6"; $bd.Padding = "12,8"
+                    $bd.Child = (& $mkT $u '#1E293B' 12)
+                    $Container.Children.Add($bd) | Out-Null
+                }
 
+                # Show last updated timestamp
+                if ($null -ne $fileTime) {
+                    $age = [math]::Round(([datetime]::Now - $fileTime).TotalHours, 1)
+                    $tsColor = if ($age -gt 24) { '#DC2626' } else { '#64748B' }
+                    $Container.Children.Add((& $mkT "Last refreshed: $($fileTime.ToString('M/d/yyyy h:mm tt')) ($age hrs ago)" $tsColor 10)) | Out-Null
+                }
+
+                # Open Self Service button
+                if ($hasSSA) {
                     $btn = New-Object System.Windows.Controls.Button
-                    $btn.Content="Update"; $btn.Background=& $mkB "#2563EB"; $btn.Foreground=& $mkB "#FFF"
-                    $btn.BorderThickness="0"; $btn.Padding="14,5"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand
-                    $btn.FontWeight="SemiBold"; $btn.Tag=$o.Id
-                    $btn.Add_Click({
-                        $offerId = $this.Tag
-                        $this.IsEnabled = $false; $this.Content = "Installing..."
-                        try {
-                            Invoke-RestMethod "http://127.0.0.1:52311/api/offers/$offerId/accept" -Method Post -TimeoutSec 30 | Out-Null
-                            $this.Content = "Triggered"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#059669')
-                        } catch {
-                            $this.Content = "Failed"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#DC2626')
-                            $this.IsEnabled = $true
-                        }
-                    })
-                    [System.Windows.Controls.DockPanel]::SetDock($btn,[System.Windows.Controls.Dock]::Right)
-                    $dk.Children.Add($btn) | Out-Null
-
-                    $inf = New-Object System.Windows.Controls.StackPanel
-                    # Strip "Update: " prefix for cleaner display
-                    $displayName = $o.Name -replace '^Update:\s*', ''
-                    $inf.Children.Add((& $mkT $displayName '#1E293B' 13)) | Out-Null
-                    if ($o.Version) { $inf.Children.Add((& $mkT "Version: $($o.Version)" '#64748B' 11)) | Out-Null }
-                    $dk.Children.Add($inf) | Out-Null
-                    $bd.Child = $dk; $Container.Children.Add($bd) | Out-Null
+                    $btn.Content = "Open Self Service  —  Install Updates"; $btn.Background = & $mkB "#2563EB"; $btn.Foreground = & $mkB "#FFF"
+                    $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,8,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+                    $btn.HorizontalAlignment = "Left"; $btn.FontWeight = "SemiBold"
+                    $btn.Add_Click({ Start-Process "C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe" })
+                    $Container.Children.Add($btn) | Out-Null
+                } elseif ($hasBESUI) {
+                    $btn = New-Object System.Windows.Controls.Button
+                    $btn.Content = "Open BigFix Client UI"; $btn.Background = & $mkB "#2563EB"; $btn.Foreground = & $mkB "#FFF"
+                    $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,8,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+                    $btn.HorizontalAlignment = "Left"; $btn.FontWeight = "SemiBold"
+                    $btn.Add_Click({ Start-Process "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe" })
+                    $Container.Children.Add($btn) | Out-Null
+                }
+            } elseif ($fileFound) {
+                $Container.Children.Add((& $mkT "All applications are up to date." '#059669' 12)) | Out-Null
+                if ($null -ne $fileTime) {
+                    $Container.Children.Add((& $mkT "Last checked: $($fileTime.ToString('M/d/yyyy h:mm tt'))" '#64748B' 10)) | Out-Null
                 }
             } else {
-                $Container.Children.Add((& $mkT "All software is up to date." '#059669')) | Out-Null
-            }
-
-            # Other self-service offers (non-update)
-            if ($otherOffers.Count -gt 0) {
-                $Container.Children.Add((& $mkT "Other available software:" '#64748B' 11)) | Out-Null
-                foreach ($o in $otherOffers) {
-                    $bd = New-Object System.Windows.Controls.Border
-                    $bd.Background=& $mkB "#F8FAFC"; $bd.BorderBrush=& $mkB "#E2E8F0"
-                    $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="12,8"
-                    $dk = New-Object System.Windows.Controls.DockPanel
-
+                $Container.Children.Add((& $mkT "BigFix update data not available." '#64748B')) | Out-Null
+                $Container.Children.Add((& $mkT "Update file not found at $fixletPath" '#94A3B8' 10)) | Out-Null
+                if ($hasSSA -or $hasBESUI) {
+                    $launchPath = if ($hasSSA) { $ssaPath } else { $besUIPath }
+                    $launchLabel = if ($hasSSA) { "Open Self Service" } else { "Open BigFix Client UI" }
                     $btn = New-Object System.Windows.Controls.Button
-                    $btn.Content="Install"; $btn.Background=& $mkB "#059669"; $btn.Foreground=& $mkB "#FFF"
-                    $btn.BorderThickness="0"; $btn.Padding="12,4"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.Tag=$o.Id
-                    $btn.Add_Click({
-                        $offerId = $this.Tag
-                        $this.IsEnabled = $false; $this.Content = "Installing..."
-                        try {
-                            Invoke-RestMethod "http://127.0.0.1:52311/api/offers/$offerId/accept" -Method Post -TimeoutSec 30 | Out-Null
-                            $this.Content = "Triggered"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#059669')
-                        } catch {
-                            $this.Content = "Failed"; $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#DC2626')
-                            $this.IsEnabled = $true
-                        }
-                    })
-                    [System.Windows.Controls.DockPanel]::SetDock($btn,[System.Windows.Controls.Dock]::Right)
-                    $dk.Children.Add($btn) | Out-Null
-
-                    $inf = New-Object System.Windows.Controls.StackPanel
-                    $inf.Children.Add((& $mkT $o.Name '#1E293B' 13)) | Out-Null
-                    if ($o.Version) { $inf.Children.Add((& $mkT "Version: $($o.Version)" '#64748B' 11)) | Out-Null }
-                    $dk.Children.Add($inf) | Out-Null
-                    $bd.Child = $dk; $Container.Children.Add($bd) | Out-Null
+                    $btn.Content = $launchLabel; $btn.Background = & $mkB "#6366F1"; $btn.Foreground = & $mkB "#FFF"
+                    $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,4,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+                    $btn.HorizontalAlignment = "Left"
+                    $btn.Tag = $launchPath
+                    $btn.Add_Click({ Start-Process $this.Tag })
+                    $Container.Children.Add($btn) | Out-Null
                 }
             }
         })
