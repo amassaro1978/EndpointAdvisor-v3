@@ -423,7 +423,7 @@ function Start-WULoad {
         $updates    = @()
         $ccmMissing = $false
         try {
-            $raw = Get-WmiObject -Class CCM_SoftwareUpdate -Namespace ROOT\ccm\ClientSDK -ErrorAction Stop |
+            $raw = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
                    Where-Object { $_.ComplianceState -eq 0 }
             if ($raw) {
                 foreach ($u in $raw) {
@@ -453,36 +453,6 @@ function Start-WULoad {
             } else {
                 $Container.Children.Add((& $mkT "$($updates.Count) patch(es) pending — please install via Software Center." '#D97706' 12)) | Out-Null
 
-                # Auto-toast if any update requires restart (every check)
-                $restartUpdates = $updates | Where-Object { $_.Title -match 'restart required' }
-                if ($restartUpdates.Count -gt 0) {
-                    try {
-                        $Script:TrayIcon.ShowBalloonTip(
-                            10000,
-                            "System Restart Required",
-                            "$($restartUpdates.Count) update(s) require a restart. Please open Software Center to apply the update.",
-                            [System.Windows.Forms.ToolTipIcon]::Warning
-                        )
-                    } catch {}
-                }
-
-                # Once-per-day toast for pending patches that do NOT require reboot
-                $noRebootUpdates = $updates | Where-Object { $_.Title -notmatch 'restart required' }
-                if ($noRebootUpdates.Count -gt 0) {
-                    $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
-                    $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
-                    if ($lastPatchToast -ne $todayKey) {
-                        try {
-                            $Script:TrayIcon.ShowBalloonTip(
-                                10000,
-                                "Software Updates Available",
-                                "$($noRebootUpdates.Count) update(s) available in Software Center. Please install at your earliest convenience.",
-                                [System.Windows.Forms.ToolTipIcon]::Info
-                            )
-                            [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
-                        } catch {}
-                    }
-                }
                 foreach ($u in $updates) {
                     $bd = New-Object System.Windows.Controls.Border
                     $bd.BorderBrush=& $mkB "#D97706"; $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="10,8"
@@ -504,6 +474,40 @@ function Start-WULoad {
                 $Container.Children.Add($btn) | Out-Null
             }
         })
+
+        # Toast notifications OUTSIDE dispatcher block to avoid cross-thread deadlock
+        $restartUpdates = $updates | Where-Object { $_.Title -match 'restart required' }
+        if ($restartUpdates.Count -gt 0) {
+            $Dispatcher.BeginInvoke([Action]{
+                try {
+                    $Script:TrayIcon.ShowBalloonTip(
+                        10000,
+                        "System Restart Required",
+                        "$($restartUpdates.Count) update(s) require a restart. Please open Software Center to apply the update.",
+                        [System.Windows.Forms.ToolTipIcon]::Warning
+                    )
+                } catch {}
+            })
+        }
+
+        $noRebootUpdates = $updates | Where-Object { $_.Title -notmatch 'restart required' }
+        if ($noRebootUpdates.Count -gt 0) {
+            $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
+            $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
+            if ($lastPatchToast -ne $todayKey) {
+                $Dispatcher.BeginInvoke([Action]{
+                    try {
+                        $Script:TrayIcon.ShowBalloonTip(
+                            10000,
+                            "Software Updates Available",
+                            "$($noRebootUpdates.Count) update(s) available in Software Center. Please install at your earliest convenience.",
+                            [System.Windows.Forms.ToolTipIcon]::Info
+                        )
+                    } catch {}
+                })
+                [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
+            }
+        }
     } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
 }
 
