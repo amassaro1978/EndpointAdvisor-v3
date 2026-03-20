@@ -494,7 +494,7 @@ function Start-WULoad {
         $allPending = @($updates)
 
         # Debug: log what we found
-        [System.IO.File]::AppendAllText("C:\ProgramData\EndpointAdvisor\toast-debug.log",
+        [System.IO.File]::AppendAllText("C:\temp\toast-debug.log",
             "$(Get-Date) | Updates: $($allPending.Count) | Restart: $($restartUpdates.Count) | ToastFlags ref: $($null -ne $ToastFlags)`r`n")
 
         if ($restartUpdates.Count -gt 0) {
