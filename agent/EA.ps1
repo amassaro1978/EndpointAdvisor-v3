@@ -414,10 +414,10 @@ function Start-BigFixLoad {
 
 # ---- Async section: Windows Update -------------------------------------------
 function Start-WULoad {
-    param($Dispatcher, $Container)
+    param($Dispatcher, $Container, $ToastFlags)
 
     Start-TrackedRunspace -Script {
-        param($Dispatcher, $Container)
+        param($Dispatcher, $Container, $ToastFlags)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
         $updates    = @()
@@ -489,22 +489,22 @@ function Start-WULoad {
             }
         })
 
-        # Set toast flags for the main thread to pick up
+        # Set toast flags for the main thread to pick up via shared hashtable
         $restartUpdates = $updates | Where-Object { $_.Title -match 'restart required' }
         $noRebootUpdates = $updates | Where-Object { $_.Title -notmatch 'restart required' }
 
         if ($restartUpdates.Count -gt 0) {
-            $Script:PendingRestartToast = $restartUpdates.Count
+            $ToastFlags.RestartCount = $restartUpdates.Count
         }
         if ($noRebootUpdates.Count -gt 0) {
             $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
             $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
             if ($lastPatchToast -ne $todayKey) {
-                $Script:PendingPatchToast = $noRebootUpdates.Count
+                $ToastFlags.PatchCount = $noRebootUpdates.Count
                 [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
             }
         }
-    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
+    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; ToastFlags=$Script:ToastFlags }
 }
 
 # ---- Async section: Support --------------------------------------------------
@@ -835,7 +835,7 @@ function Show-Dashboard {
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken `
         -TrayIcon $Script:TrayIcon -IconAlert $Script:IconAlert -IconNormal $Script:IconNormal
     Start-BigFixLoad   -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
-    Start-WULoad       -Dispatcher $dispatcher -Container $wuPanel
+    Start-WULoad       -Dispatcher $dispatcher -Container $wuPanel -ToastFlags $Script:ToastFlags
     Start-SupportLoad  -Dispatcher $dispatcher -Container $supPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken
     Start-AccountLoad  -Dispatcher $dispatcher -Container $acctPanel
@@ -890,20 +890,19 @@ $timer.Interval = $Config.RefreshInterval * 1000
 $timer.Add_Tick({ Start-ContentRefresh })
 $timer.Start()
 
-# Toast polling timer — checks for pending toast flags from runspaces every 5s
-$Script:PendingRestartToast = 0
-$Script:PendingPatchToast = 0
+# Shared toast flags — synchronized hashtable accessible from runspaces
+$Script:ToastFlags = [hashtable]::Synchronized(@{ RestartCount = 0; PatchCount = 0 })
 $toastTimer = New-Object System.Windows.Forms.Timer
 $toastTimer.Interval = 5000
 $toastTimer.Add_Tick({
-    if ($Script:PendingRestartToast -gt 0) {
-        $count = $Script:PendingRestartToast
-        $Script:PendingRestartToast = 0
+    if ($Script:ToastFlags.RestartCount -gt 0) {
+        $count = $Script:ToastFlags.RestartCount
+        $Script:ToastFlags.RestartCount = 0
         Show-Toast "System Restart Required" "$count update(s) require a restart. Please open Software Center to apply the update." "critical"
     }
-    if ($Script:PendingPatchToast -gt 0) {
-        $count = $Script:PendingPatchToast
-        $Script:PendingPatchToast = 0
+    if ($Script:ToastFlags.PatchCount -gt 0) {
+        $count = $Script:ToastFlags.PatchCount
+        $Script:ToastFlags.PatchCount = 0
         Show-Toast "Software Updates Available" "$count update(s) available in Software Center. Please install at your earliest convenience." "info"
     }
 })
