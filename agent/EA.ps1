@@ -834,6 +834,7 @@ function Show-Dashboard {
     $panel.Children.Add($eaVerBlock) | Out-Null
 
     $Script:DashboardWindow = $window
+    $Script:ToastFlags.Acknowledged = $true  # User opened dashboard — stop toasting
     $window.Show()
 
     $dispatcher = $window.Dispatcher
@@ -897,10 +898,13 @@ $timer.Add_Tick({ Start-ContentRefresh })
 $timer.Start()
 
 # Shared toast flags — synchronized hashtable accessible from runspaces
-$Script:ToastFlags = [hashtable]::Synchronized(@{ RestartCount = 0; PatchCount = 0 })
+$Script:ToastFlags = [hashtable]::Synchronized(@{ RestartCount = 0; PatchCount = 0; Acknowledged = $false })
 $toastTimer = New-Object System.Windows.Forms.Timer
 $toastTimer.Interval = 5000
 $toastTimer.Add_Tick({
+    # Don't toast if user has acknowledged (opened dashboard or clicked toast)
+    if ($Script:ToastFlags.Acknowledged) { return }
+
     if ($Script:ToastFlags.RestartCount -gt 0) {
         $count = $Script:ToastFlags.RestartCount
         $Script:ToastFlags.RestartCount = 0
@@ -913,6 +917,44 @@ $toastTimer.Add_Tick({
     }
 })
 $toastTimer.Start()
+
+# Periodic WU re-check timer — every 4 hours, re-checks and re-toasts if not acknowledged
+$wuPeriodicTimer = New-Object System.Windows.Forms.Timer
+$wuPeriodicTimer.Interval = 4 * 60 * 60 * 1000  # 4 hours in ms
+$wuPeriodicTimer.Add_Tick({
+    # Reset acknowledged flag so toast can fire again
+    $Script:ToastFlags.Acknowledged = $false
+    # Re-run background WU check
+    $tf = $Script:ToastFlags
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.Open()
+    $ps = [powershell]::Create().AddScript({
+        param($ToastFlags)
+        try {
+            $raw = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
+                   Where-Object { $_.ComplianceState -eq 0 }
+            if ($raw) {
+                $restartCount = 0
+                foreach ($u in $raw) {
+                    $isRestart = $false
+                    try {
+                        $isRestart = [bool]$u.IsRebootPending -or
+                            $u.EvaluationState -in @(8,9,10) -or
+                            $u.RebootOutsideServiceWindow -eq $true -or
+                            ($u.Name -match 'Cumulative Update|Security Update|Servicing Stack')
+                    } catch {
+                        try { $isRestart = $u.Name -match 'Cumulative Update|Security Update|Servicing Stack' } catch {}
+                    }
+                    if ($isRestart) { $restartCount++ }
+                }
+                if ($restartCount -gt 0) { $ToastFlags.RestartCount = $restartCount }
+            }
+        } catch {}
+    }).AddArgument($tf)
+    $ps.Runspace = $rs
+    $ps.BeginInvoke() | Out-Null
+})
+$wuPeriodicTimer.Start()
 
 # Deferred startup refresh - fires 1s after message pump starts so UI never blocks
 $startupTimer          = New-Object System.Windows.Forms.Timer
