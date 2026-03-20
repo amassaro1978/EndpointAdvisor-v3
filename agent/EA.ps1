@@ -469,8 +469,12 @@ function Start-WULoad {
                 $btn = New-Object System.Windows.Controls.Button
                 $btn.Content="Open Software Center"; $btn.Background=& $mkB "#D97706"; $btn.Foreground=& $mkB "#FFFFFF"
                 $btn.BorderThickness="0"; $btn.Padding="14,6"; $btn.Margin="0,8,0,0"; $btn.Cursor=[System.Windows.Input.Cursors]::Hand; $btn.HorizontalAlignment="Left"; $btn.FontWeight="SemiBold"
-                $scPath = "$env:WinDir\CCM\SCClient.exe"
-                $btn.Add_Click({ if (Test-Path $scPath) { Start-Process $scPath } else { Start-Process "softwarecenter:" } })
+                $btn.Add_Click({
+                    try {
+                        $p = "$env:WinDir\CCM\SCClient.exe"
+                        if (Test-Path $p) { Start-Process $p } else { Start-Process "softwarecenter:" }
+                    } catch { Start-Process "softwarecenter:" }
+                })
                 $Container.Children.Add($btn) | Out-Null
             }
         })
