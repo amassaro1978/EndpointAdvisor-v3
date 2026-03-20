@@ -490,12 +490,18 @@ function Start-WULoad {
         })
 
         # Set toast flags for the main thread to pick up via shared hashtable
-        $restartUpdates = $updates | Where-Object { $_.Title -match 'restart required' }
-        $noRebootUpdates = $updates | Where-Object { $_.Title -notmatch 'restart required' }
+        $restartUpdates = @($updates | Where-Object { $_.Title -match 'restart required' })
+        $allPending = @($updates)
+
+        # Debug: log what we found
+        [System.IO.File]::AppendAllText("C:\ProgramData\EndpointAdvisor\toast-debug.log",
+            "$(Get-Date) | Updates: $($allPending.Count) | Restart: $($restartUpdates.Count) | ToastFlags ref: $($null -ne $ToastFlags)`r`n")
 
         if ($restartUpdates.Count -gt 0) {
             $ToastFlags.RestartCount = $restartUpdates.Count
         }
+        # For non-reboot updates, toast once per day
+        $noRebootUpdates = @($updates | Where-Object { $_.Title -notmatch 'restart required' })
         if ($noRebootUpdates.Count -gt 0) {
             $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
             $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
