@@ -234,10 +234,13 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
         <div class="toggle-row">
           <label class="toggle"><input type="checkbox" id="fEnabled" checked><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-          <span id="nagControls" style="display:none;margin-left:48px">
-            <label class="toggle"><input type="checkbox" id="fNag"><span class="toggle-slider"></span></label>
-            <span>Nag until acknowledged</span>
-            <input id="fNagInterval" type="number" value="30" min="5" style="width:60px;margin-left:8px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
+        </div>
+        <div id="nagControls" class="toggle-row" style="display:none;margin-top:12px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+          <label class="toggle"><input type="checkbox" id="fNag"><span class="toggle-slider"></span></label>
+          <span style="margin-right:16px">Nag until acknowledged</span>
+          <span style="display:inline-flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--muted)">Every</span>
+            <input id="fNagInterval" type="number" value="30" min="5" style="width:60px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
             <span style="font-size:11px;color:var(--muted)">min</span>
           </span>
         </div>
