@@ -925,50 +925,64 @@ $startupTimer.Add_Tick({
 $startupTimer.Start()
 
 # Background WU check on startup — runs independently of dashboard for toast notifications
-$wuStartupTimer = New-Object System.Windows.Forms.Timer
-$wuStartupTimer.Interval = 3000
-$wuStartupTimer.Add_Tick({
-    $wuStartupTimer.Stop()
-    $wuStartupTimer.Dispose()
-    $tf = $Script:ToastFlags
-    $rs = [runspacefactory]::CreateRunspace()
-    $rs.Open()
-    $ps = [powershell]::Create().AddScript({
-        param($ToastFlags)
+try {
+    $wuStartupTimer = New-Object System.Windows.Forms.Timer
+    $wuStartupTimer.Interval = 5000
+    $wuStartupTimer.Add_Tick({
         try {
-            $raw = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
-                   Where-Object { $_.ComplianceState -eq 0 }
-            if ($raw) {
-                $restartCount = 0
-                $patchCount = 0
-                foreach ($u in $raw) {
-                    $isRestart = $false
-                    try {
-                        $isRestart = [bool]$u.IsRebootPending -or
-                            $u.EvaluationState -in @(8,9,10) -or
-                            $u.RebootOutsideServiceWindow -eq $true -or
-                            ($u.Name -match 'Cumulative Update|Security Update|Servicing Stack')
-                    } catch {
-                        try { $isRestart = $u.Name -match 'Cumulative Update|Security Update|Servicing Stack' } catch {}
+            $wuStartupTimer.Stop()
+            $wuStartupTimer.Dispose()
+            [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | WU startup timer fired`r`n")
+            $tf = $Script:ToastFlags
+            $rs = [runspacefactory]::CreateRunspace()
+            $rs.Open()
+            $ps = [powershell]::Create().AddScript({
+                param($ToastFlags)
+                try {
+                    [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | WU runspace started`r`n")
+                    $raw = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
+                           Where-Object { $_.ComplianceState -eq 0 }
+                    [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | WU query done, found $(@($raw).Count) updates`r`n")
+                    if ($raw) {
+                        $restartCount = 0
+                        $patchCount = 0
+                        foreach ($u in $raw) {
+                            $isRestart = $false
+                            try {
+                                $isRestart = [bool]$u.IsRebootPending -or
+                                    $u.EvaluationState -in @(8,9,10) -or
+                                    $u.RebootOutsideServiceWindow -eq $true -or
+                                    ($u.Name -match 'Cumulative Update|Security Update|Servicing Stack')
+                            } catch {
+                                try { $isRestart = $u.Name -match 'Cumulative Update|Security Update|Servicing Stack' } catch {}
+                            }
+                            if ($isRestart) { $restartCount++ } else { $patchCount++ }
+                        }
+                        [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | Restart: $restartCount Patch: $patchCount`r`n")
+                        if ($restartCount -gt 0) { $ToastFlags.RestartCount = $restartCount }
+                        if ($patchCount -gt 0) {
+                            $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
+                            $lastToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
+                            if ($lastToast -ne $todayKey) {
+                                $ToastFlags.PatchCount = $patchCount
+                                [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
+                            }
+                        }
                     }
-                    if ($isRestart) { $restartCount++ } else { $patchCount++ }
+                } catch {
+                    [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | WU runspace ERROR: $($_.Exception.Message)`r`n")
                 }
-                if ($restartCount -gt 0) { $ToastFlags.RestartCount = $restartCount }
-                if ($patchCount -gt 0) {
-                    $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
-                    $lastToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
-                    if ($lastToast -ne $todayKey) {
-                        $ToastFlags.PatchCount = $patchCount
-                        [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
-                    }
-                }
-            }
-        } catch {}
-    }).AddArgument($tf)
-    $ps.Runspace = $rs
-    $ps.BeginInvoke() | Out-Null
-})
-$wuStartupTimer.Start()
+            }).AddArgument($tf)
+            $ps.Runspace = $rs
+            $ps.BeginInvoke() | Out-Null
+        } catch {
+            [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | Timer tick ERROR: $($_.Exception.Message)`r`n")
+        }
+    })
+    $wuStartupTimer.Start()
+} catch {
+    [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | Timer setup ERROR: $($_.Exception.Message)`r`n")
+}
 
 Write-Log "Endpoint Advisor started on $Hostname (ScriptDir=$ScriptDir)"
 
