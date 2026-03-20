@@ -8,6 +8,8 @@
     a WPF system-tray dashboard. No backend server required.
 #>
 
+$Script:EAVersion = "7.0.0"
+
 # ---- Config ------------------------------------------------------------------
 $ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ConfigPath = Join-Path $ScriptDir "EA.config.json"
@@ -425,8 +427,12 @@ function Start-WULoad {
                    Where-Object { $_.ComplianceState -eq 0 }
             if ($raw) {
                 foreach ($u in $raw) {
+                    $rebootNeeded = $false
+                    try { $rebootNeeded = [bool]$u.IsRebootPending -or $u.EvaluationState -in @(8,9,10) } catch {}
+                    $title = $u.Name
+                    if ($rebootNeeded) { $title += " (restart required)" }
                     $updates += [PSCustomObject]@{
-                        Title    = $u.Name
+                        Title    = $title
                         Deadline = if ($u.Deadline) { [System.Management.ManagementDateTimeConverter]::ToDateTime($u.Deadline) } else { $null }
                     }
                 }
@@ -446,6 +452,37 @@ function Start-WULoad {
                 $Container.Children.Add((& $mkT "All OS patches are up to date." '#059669')) | Out-Null
             } else {
                 $Container.Children.Add((& $mkT "$($updates.Count) patch(es) pending — please install via Software Center." '#D97706' 12)) | Out-Null
+
+                # Auto-toast if any update requires restart (every check)
+                $restartUpdates = $updates | Where-Object { $_.Title -match 'restart required' }
+                if ($restartUpdates.Count -gt 0) {
+                    try {
+                        $Script:TrayIcon.ShowBalloonTip(
+                            10000,
+                            "System Restart Required",
+                            "$($restartUpdates.Count) update(s) require a restart. Please open Software Center to apply the update.",
+                            [System.Windows.Forms.ToolTipIcon]::Warning
+                        )
+                    } catch {}
+                }
+
+                # Once-per-day toast for pending patches that do NOT require reboot
+                $noRebootUpdates = $updates | Where-Object { $_.Title -notmatch 'restart required' }
+                if ($noRebootUpdates.Count -gt 0) {
+                    $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
+                    $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
+                    if ($lastPatchToast -ne $todayKey) {
+                        try {
+                            $Script:TrayIcon.ShowBalloonTip(
+                                10000,
+                                "Software Updates Available",
+                                "$($noRebootUpdates.Count) update(s) available in Software Center. Please install at your earliest convenience.",
+                                [System.Windows.Forms.ToolTipIcon]::Info
+                            )
+                            [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
+                        } catch {}
+                    }
+                }
                 foreach ($u in $updates) {
                     $bd = New-Object System.Windows.Controls.Border
                     $bd.BorderBrush=& $mkB "#D97706"; $bd.BorderThickness="3,0,0,0"; $bd.CornerRadius="6"; $bd.Margin="0,0,0,6"; $bd.Padding="10,8"
@@ -579,7 +616,7 @@ function Start-AccountLoad {
             if (Test-Path $ykmanPath) {
                 $ykInfo = & $ykmanPath info 2>$null
                 if ($ykInfo) {
-                    foreach ($slot in @("9a", "9c", "9d", "9e")) {
+                    foreach ($slot in @("9a", "9c", "9e")) {
                         $certPem = & $ykmanPath "piv" "certificates" "export" $slot "-" 2>$null
                         if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
                             $tempFile = [System.IO.Path]::GetTempFileName()
@@ -749,13 +786,13 @@ function Show-Dashboard {
     $panel.Children.Add($annPanel) | Out-Null
 
     # Software Updates (BigFix)
-    $panel.Children.Add((New-SectionHeader "Software Updates")) | Out-Null
+    $panel.Children.Add((New-SectionHeader "BigFix Software Updates")) | Out-Null
     $swPanel = New-Object System.Windows.Controls.StackPanel
     $swPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($swPanel) | Out-Null
 
     # Pending Windows Updates
-    $panel.Children.Add((New-SectionHeader "Pending Updates")) | Out-Null
+    $panel.Children.Add((New-SectionHeader "System Patch Updates")) | Out-Null
     $wuPanel = New-Object System.Windows.Controls.StackPanel
     $wuPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($wuPanel) | Out-Null
@@ -781,8 +818,14 @@ function Show-Dashboard {
     $verBlock = New-Object System.Windows.Controls.TextBlock
     $verBlock.Text = $versionText
     $verBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
-    $verBlock.FontSize = 10; $verBlock.Margin = "0,16,0,4"; $verBlock.HorizontalAlignment = "Center"
+    $verBlock.FontSize = 10; $verBlock.Margin = "0,16,0,2"; $verBlock.HorizontalAlignment = "Center"
     $panel.Children.Add($verBlock) | Out-Null
+
+    $eaVerBlock = New-Object System.Windows.Controls.TextBlock
+    $eaVerBlock.Text = "Endpoint Advisor v$($Script:EAVersion)"
+    $eaVerBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#64748B")
+    $eaVerBlock.FontSize = 9; $eaVerBlock.Margin = "0,0,0,4"; $eaVerBlock.HorizontalAlignment = "Center"
+    $panel.Children.Add($eaVerBlock) | Out-Null
 
     $Script:DashboardWindow = $window
     $window.Show()
