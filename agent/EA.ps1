@@ -930,10 +930,11 @@ $wuStartupTimer.Interval = 3000
 $wuStartupTimer.Add_Tick({
     $wuStartupTimer.Stop()
     $wuStartupTimer.Dispose()
-    # Run WU check in a background runspace (no UI needed)
     $tf = $Script:ToastFlags
-    [System.Threading.ThreadPool]::QueueUserWorkItem([System.Threading.WaitCallback]{
-        param($state)
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.Open()
+    $ps = [powershell]::Create().AddScript({
+        param($ToastFlags)
         try {
             $raw = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
                    Where-Object { $_.ComplianceState -eq 0 }
@@ -952,18 +953,20 @@ $wuStartupTimer.Add_Tick({
                     }
                     if ($isRestart) { $restartCount++ } else { $patchCount++ }
                 }
-                if ($restartCount -gt 0) { $state.RestartCount = $restartCount }
+                if ($restartCount -gt 0) { $ToastFlags.RestartCount = $restartCount }
                 if ($patchCount -gt 0) {
                     $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
                     $lastToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
                     if ($lastToast -ne $todayKey) {
-                        $state.PatchCount = $patchCount
+                        $ToastFlags.PatchCount = $patchCount
                         [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
                     }
                 }
             }
         } catch {}
-    }, $tf)
+    }).AddArgument($tf)
+    $ps.Runspace = $rs
+    $ps.BeginInvoke() | Out-Null
 })
 $wuStartupTimer.Start()
 
