@@ -924,6 +924,49 @@ $startupTimer.Add_Tick({
 })
 $startupTimer.Start()
 
+# Background WU check on startup — runs independently of dashboard for toast notifications
+$wuStartupTimer = New-Object System.Windows.Forms.Timer
+$wuStartupTimer.Interval = 3000
+$wuStartupTimer.Add_Tick({
+    $wuStartupTimer.Stop()
+    $wuStartupTimer.Dispose()
+    # Run WU check in a background runspace (no UI needed)
+    $tf = $Script:ToastFlags
+    [System.Threading.ThreadPool]::QueueUserWorkItem([System.Threading.WaitCallback]{
+        param($state)
+        try {
+            $raw = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
+                   Where-Object { $_.ComplianceState -eq 0 }
+            if ($raw) {
+                $restartCount = 0
+                $patchCount = 0
+                foreach ($u in $raw) {
+                    $isRestart = $false
+                    try {
+                        $isRestart = [bool]$u.IsRebootPending -or
+                            $u.EvaluationState -in @(8,9,10) -or
+                            $u.RebootOutsideServiceWindow -eq $true -or
+                            ($u.Name -match 'Cumulative Update|Security Update|Servicing Stack')
+                    } catch {
+                        try { $isRestart = $u.Name -match 'Cumulative Update|Security Update|Servicing Stack' } catch {}
+                    }
+                    if ($isRestart) { $restartCount++ } else { $patchCount++ }
+                }
+                if ($restartCount -gt 0) { $state.RestartCount = $restartCount }
+                if ($patchCount -gt 0) {
+                    $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
+                    $lastToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
+                    if ($lastToast -ne $todayKey) {
+                        $state.PatchCount = $patchCount
+                        [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
+                    }
+                }
+            }
+        } catch {}
+    }, $tf)
+})
+$wuStartupTimer.Start()
+
 Write-Log "Endpoint Advisor started on $Hostname (ScriptDir=$ScriptDir)"
 
 [System.Windows.Forms.Application]::Run()
