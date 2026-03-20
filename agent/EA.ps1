@@ -489,36 +489,18 @@ function Start-WULoad {
             }
         })
 
-        # Toast notifications OUTSIDE dispatcher block to avoid cross-thread deadlock
+        # Set toast flags for the main thread to pick up
         $restartUpdates = $updates | Where-Object { $_.Title -match 'restart required' }
-        if ($restartUpdates.Count -gt 0) {
-            $Dispatcher.BeginInvoke([Action]{
-                try {
-                    $Script:TrayIcon.ShowBalloonTip(
-                        10000,
-                        "System Restart Required",
-                        "$($restartUpdates.Count) update(s) require a restart. Please open Software Center to apply the update.",
-                        [System.Windows.Forms.ToolTipIcon]::Warning
-                    )
-                } catch {}
-            })
-        }
-
         $noRebootUpdates = $updates | Where-Object { $_.Title -notmatch 'restart required' }
+
+        if ($restartUpdates.Count -gt 0) {
+            $Script:PendingRestartToast = $restartUpdates.Count
+        }
         if ($noRebootUpdates.Count -gt 0) {
             $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
             $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
             if ($lastPatchToast -ne $todayKey) {
-                $Dispatcher.BeginInvoke([Action]{
-                    try {
-                        $Script:TrayIcon.ShowBalloonTip(
-                            10000,
-                            "Software Updates Available",
-                            "$($noRebootUpdates.Count) update(s) available in Software Center. Please install at your earliest convenience.",
-                            [System.Windows.Forms.ToolTipIcon]::Info
-                        )
-                    } catch {}
-                })
+                $Script:PendingPatchToast = $noRebootUpdates.Count
                 [Environment]::SetEnvironmentVariable('EA_LAST_PATCH_TOAST', $todayKey, 'User')
             }
         }
@@ -907,6 +889,25 @@ $timer          = New-Object System.Windows.Forms.Timer
 $timer.Interval = $Config.RefreshInterval * 1000
 $timer.Add_Tick({ Start-ContentRefresh })
 $timer.Start()
+
+# Toast polling timer — checks for pending toast flags from runspaces every 5s
+$Script:PendingRestartToast = 0
+$Script:PendingPatchToast = 0
+$toastTimer = New-Object System.Windows.Forms.Timer
+$toastTimer.Interval = 5000
+$toastTimer.Add_Tick({
+    if ($Script:PendingRestartToast -gt 0) {
+        $count = $Script:PendingRestartToast
+        $Script:PendingRestartToast = 0
+        Show-Toast "System Restart Required" "$count update(s) require a restart. Please open Software Center to apply the update." "critical"
+    }
+    if ($Script:PendingPatchToast -gt 0) {
+        $count = $Script:PendingPatchToast
+        $Script:PendingPatchToast = 0
+        Show-Toast "Software Updates Available" "$count update(s) available in Software Center. Please install at your earliest convenience." "info"
+    }
+})
+$toastTimer.Start()
 
 # Deferred startup refresh - fires 1s after message pump starts so UI never blocks
 $startupTimer          = New-Object System.Windows.Forms.Timer
