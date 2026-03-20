@@ -47,9 +47,17 @@ Edit `agent/EA.config.json`:
 }
 ```
 
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `ContentDataUrl` | URL to the hosted ContentData.json file | Required |
+| `GitHubToken` | Optional GitHub PAT if repo is private | Empty |
+| `RefreshInterval` | How often to poll for changes (seconds) | 900 (15 min) |
+| `LogPath` | Where to write the agent log | `C:\ProgramData\EndpointAdvisor\EA.log` |
+| `LogMaxSizeMB` | Max log file size before rotation | 2 MB |
+
 ### 3. Deploy to endpoints
 
-Copy all 4 files to a folder on the endpoint (e.g. `C:\Program Files\EndpointAdvisor\`) and run at logon via BigFix or GPO:
+Copy all agent files to a folder on the endpoint (e.g. `C:\Program Files\EndpointAdvisor\`) and run at logon via BigFix or GPO:
 
 ```
 powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\EndpointAdvisor\EA.ps1"
@@ -64,16 +72,98 @@ Open `admin/EA_Admin.html` in a browser. You need a GitHub PAT with write access
 3. Add or edit announcements
 4. Click **Commit to GitHub** — endpoints pick it up on next poll
 
+---
+
 ## Dashboard Sections
 
-| Section | Source | Description |
-|---------|--------|-------------|
-| Announcements | ContentData.json (GitHub) | Admin-managed announcements with priority, nag settings, targeting |
-| BigFix Software Updates | BigFix REST API | Pending software offers from BigFix Self Service |
-| System Patch Updates | ECM/SCCM (WMI) | Pending Windows updates with reboot detection |
-| Account Info | Active Directory | Password expiration, account status |
-| YubiKey Info | ykman CLI | PIV certificate details for slots 9a, 9c, 9e |
-| Support | ContentData.json | Support contact info and links |
+The agent displays a system tray dashboard with the following sections. Each section loads asynchronously in its own runspace so the UI never blocks.
+
+### 1. Announcements
+
+| Item | Detail |
+|------|--------|
+| **Source** | `ContentData.json` hosted on GitHub (or any web server) |
+| **How it works** | Agent polls the JSON URL on a configurable interval. Parses announcements and evaluates client-side targeting conditions. |
+| **Admin control** | Priority (info/warning/critical), enabled toggle, nag settings, links, expiration dates |
+| **Nag behavior** | Critical announcements can be set to re-toast every X minutes until the user acknowledges them |
+| **Toast** | Uses Windows Toast Notification API (`ToastNotificationManager`). Falls back to `NotifyIcon.ShowBalloonTip` if unavailable. |
+| **Tray icon** | Switches to alert icon (`EA_LOGO_MSG.ico`) when unread announcements exist |
+
+### 2. BigFix Software Updates
+
+| Item | Detail |
+|------|--------|
+| **Source** | Local text file `C:\temp\X-Fixlet-Source_Count.txt` populated by a BigFix Fixlet |
+| **How it works** | A BigFix Fixlet runs periodically on the endpoint and writes pending software offer names (one per line) to the text file. The agent reads this file and displays each update as a card. |
+| **Data format** | Plain text, one application name per line (e.g. `Google Chrome 134.0.6998.89`) |
+| **Staleness check** | Displays file timestamp and age in hours. Flags red if > 24 hours old. |
+| **Action button** | "Open Self Service — Install Updates" launches BigFix Self Service Application (`BigFixSSA.exe`). Falls back to `BESClientUI.exe` if SSA is not installed. |
+| **Button paths** | SSA: `C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe`<br>Client UI: `C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe` |
+
+### 3. System Patch Updates
+
+| Item | Detail |
+|------|--------|
+| **Source** | ECM/SCCM client via WMI — `CCM_SoftwareUpdate` class in `ROOT\ccm\ClientSDK` namespace |
+| **How it works** | Queries `Get-CimInstance` with a 30-second timeout. Filters for `ComplianceState -eq 0` (not compliant = update pending). |
+| **Reboot detection** | Each update is checked for restart requirement using multiple indicators (see below) |
+| **Display** | Each pending update shown as an amber-bordered card with title and deadline |
+| **Deadline coloring** | Red if deadline < 3 days away, grey otherwise |
+| **Action button** | "Open Software Center" launches `SCClient.exe` or falls back to `softwarecenter:` URI |
+
+**Reboot Detection Logic:**
+
+An update is flagged as "(restart required)" if ANY of these conditions are true:
+
+| Check | Description |
+|-------|-------------|
+| `IsRebootPending` | Direct boolean property on the WMI object |
+| `EvaluationState` in (8, 9, 10) | Restart pending / restart required / reboot required states |
+| `RebootOutsideServiceWindow` = true | Reboot might be required outside maintenance windows |
+| Name matches pattern | `Cumulative Update`, `Security Update`, or `Servicing Stack` in the update title |
+
+### 4. Account Info (Active Directory)
+
+| Item | Detail |
+|------|--------|
+| **Source** | Active Directory via ADSI (no AD PowerShell module required) |
+| **How it works** | Uses `[adsisearcher]` to query the current user's AD object by `sAMAccountName`. No domain controller binding issues — uses the default ADSI provider. |
+| **Properties queried** | `displayName`, `pwdLastSet`, `userAccountControl`, `msDS-UserPasswordExpiryTimeComputed` |
+| **Password expiry** | Calculated from `msDS-UserPasswordExpiryTimeComputed` (FileTime format). This property accounts for fine-grained password policies. |
+| **Display** | Shows username, display name, password expiry date, and days remaining |
+| **Color coding** | Green (> 14 days), Amber (≤ 14 days), Red (expired) |
+| **Never expires** | Detected when the FileTime value is 0 or `Int64.MaxValue` |
+
+### 5. YubiKey / Certificate Info
+
+| Item | Detail |
+|------|--------|
+| **Source** | YubiKey Manager CLI (`ykman.exe`) + Windows Certificate Store |
+| **ykman path** | `C:\Program Files\Yubico\Yubikey Manager\ykman.exe` |
+| **How it works** | Runs `ykman info` to detect YubiKey presence, then exports PIV certificates from each slot using `ykman piv certificates export <slot> -` |
+| **Slots checked** | 9a (Authentication), 9c (Digital Signature), 9e (Card Authentication). Slot 9d (Key Management) is excluded. |
+| **Certificate parsing** | Exports PEM to temp file → loads as `X509Certificate2` → reads `NotAfter` date → calculates days remaining |
+| **Virtual Smart Card** | Also checks `Cert:\CurrentUser\My` for certificates with "Virtual" or "Smart Card" in Subject/Issuer |
+| **Color coding** | Green (> 14 days), Amber (≤ 14 days), Red (expired) |
+| **Display** | Slot label, expiry date, days remaining |
+
+### 6. Support Info
+
+| Item | Detail |
+|------|--------|
+| **Source** | `ContentData.json` → `Data.Support` array |
+| **How it works** | Same JSON file as announcements. Support entries have `Text`, `Details`, and `Links` fields. |
+| **Display** | Purple-bordered cards with title, details text, and clickable hyperlinks |
+| **Admin control** | Managed via the same `EA_Admin.html` interface |
+
+### 7. Footer
+
+| Item | Detail |
+|------|--------|
+| **OS Info** | Windows edition + display version (e.g. "Windows 11 Enterprise Build: 25H2"). Queried via `Get-CimInstance Win32_OperatingSystem` + registry `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion`. |
+| **EA Version** | "Endpoint Advisor v7.0.0" displayed below OS info |
+
+---
 
 ## Automatic Toast Notifications
 
@@ -82,70 +172,102 @@ Open `admin/EA_Admin.html` in a browser. You need a GitHub PAT with write access
 When the agent detects pending Windows updates that require a restart, it proactively notifies the user via Windows toast notification.
 
 **Behavior:**
-- On app startup (after ~8 second delay), a background runspace queries `CCM_SoftwareUpdate` via WMI
-- If any updates require a restart, a toast fires: *"X update(s) require a restart. Please open Software Center to apply the update."*
-- Every **4 hours**, the check repeats and the toast fires again if the update is still pending
-- Toast uses the Windows Toast Notification API (`ToastNotificationManager`)
+1. On app startup (after ~8 second delay), a background PowerShell runspace queries `CCM_SoftwareUpdate` via WMI
+2. If any updates require a restart, a toast fires: *"X update(s) require a restart. Please open Software Center to apply the update."*
+3. Every **4 hours**, the check repeats and the toast fires again if the update is still pending
+4. When the user **opens the dashboard**, toasts stop (acknowledged)
+5. On the next 4-hour cycle, the acknowledged flag resets — if updates are still pending, toasting resumes
 
-**Acknowledgement:**
-- When the user **opens the dashboard**, the `Acknowledged` flag is set to `true` — toasts stop for the current cycle
-- On the next 4-hour cycle, the flag resets to `false` and the toast will fire again if updates are still pending
-- This continues until the user actually installs the update and reboots
+**Purpose:** Users complain about being rebooted at inconvenient times. This proactively lets them know they have a pending reboot so they can handle it when convenient.
 
-**Technical Details:**
-- Toast state is managed via a synchronized hashtable (`$Script:ToastFlags`) shared between background runspaces and the main UI thread
-- Flags: `RestartCount` (int), `PatchCount` (int), `Acknowledged` (bool)
-- Line 901: Initialized at startup → `@{ RestartCount = 0; PatchCount = 0; Acknowledged = $false }`
-- Line 837: Set `Acknowledged = $true` when dashboard window opens
-- Line 906: Toast timer checks `Acknowledged` flag — skips if `$true`
-- Line 926: 4-hour periodic timer resets `Acknowledged = $false` and re-runs WU check
-- Background WU check uses a PowerShell runspace with `BeginInvoke()` (non-blocking)
-- WMI query uses `Get-CimInstance` with `-OperationTimeoutSec 30` to prevent hangs
+**Technical Implementation:**
 
-**Reboot Detection Logic:**
-Updates are flagged as "restart required" if any of these conditions are true:
-- `IsRebootPending` property is `$true`
-- `EvaluationState` is 8, 9, or 10 (restart pending/required states)
-- `RebootOutsideServiceWindow` is `$true`
-- Update name matches: `Cumulative Update`, `Security Update`, or `Servicing Stack`
+Toast state is managed via a synchronized hashtable shared between background runspaces and the main UI thread:
 
-### Pending Patch Toast (No Reboot)
+```powershell
+$Script:ToastFlags = [hashtable]::Synchronized(@{
+    RestartCount  = 0        # Number of updates requiring restart
+    PatchCount    = 0        # Number of updates not requiring restart
+    Acknowledged  = $false   # Has user seen the dashboard?
+})
+```
 
-For updates that do NOT require a reboot, a gentler toast fires **once per day**:
+| Location | What happens |
+|----------|-------------|
+| Line 901 | Initialized at startup: `Acknowledged = $false` |
+| Line 837 | Set `Acknowledged = $true` when dashboard window opens |
+| Line 906 | Toast timer checks flag — skips if acknowledged |
+| Line 926 | 4-hour periodic timer resets `Acknowledged = $false` and re-runs WU check |
+
+**Startup WU Check Flow:**
+1. 5-second timer fires after app launch
+2. Creates a new PowerShell runspace (isolated, non-blocking)
+3. Runspace queries `Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30`
+4. Counts restart-required updates using the reboot detection logic
+5. Sets `ToastFlags.RestartCount` on the synchronized hashtable
+6. Main thread toast timer (polling every 5s) picks up the flag and calls `Show-Toast`
+
+### Pending Patch Toast (No Reboot Required)
+
+For updates that do NOT require a reboot:
+- Fires **once per day** with Info priority
 - *"X update(s) available in Software Center. Please install at your earliest convenience."*
-- Uses `Info` priority (not `Critical`)
-- Tracked via user environment variable `EA_LAST_PATCH_TOAST` (stores today's date)
+- Tracked via user environment variable `EA_LAST_PATCH_TOAST` (stores today's date `yyyy-MM-dd`)
 - Will not re-fire until the next calendar day
+
+---
 
 ## Admin Panel (EA_Admin.html)
 
-### Critical Announcement Nag Settings
-- **Enabled toggle**: Enable/disable the announcement
-- **Nag until acknowledged**: When enabled, the announcement will re-toast at a configurable interval
-- **Nag interval (minutes)**: How often to re-display (default: 30 min)
+Single-file HTML admin interface — no server required. Opens in any browser.
+
+### Features
+- **GitHub integration**: Load/save `ContentData.json` directly to a GitHub repo
+- **Announcement management**: Add, edit, delete announcements with priority levels
+- **Support info management**: Add help desk contacts, links, documentation
+- **Live preview**: See how announcements will render before publishing
+
+### Announcement Settings
+
+| Setting | Description |
+|---------|-------------|
+| Title | Announcement headline |
+| Message | Body text (supports newlines) |
+| Priority | Info (blue), Warning (amber), Critical (red) |
+| Enabled | Toggle on/off without deleting |
+| Nag until acknowledged | For critical items — re-toasts at a configurable interval |
+| Nag interval | Minutes between re-notifications (default: 30) |
+| Links | Optional action buttons with URLs |
 
 ### Future: Registry-Based Targeting
-Planned feature to target announcements based on registry keys (e.g., department, team, location). Not yet implemented — waiting on registry key definitions.
+
+Planned feature to target announcements based on registry keys (e.g., department, team, location). Example: show announcement only to machines where `HKLM\SOFTWARE\Company\Department` = `Engineering`. Not yet implemented.
+
+---
 
 ## Version History
 
 ### v7.0.0 (March 2026)
 - Renamed sections: "BigFix Software Updates" and "System Patch Updates"
 - Automatic restart-required toast notifications (startup + every 4 hours)
-- Daily pending patch toast notifications
-- Acknowledged flag — toasts stop when dashboard is opened, resume on next cycle
+- Daily pending patch toast notifications (once per day, no reboot needed)
+- Acknowledged flag — toasts stop when dashboard is opened, resume on next 4-hour cycle
 - Reboot detection: checks `IsRebootPending`, `EvaluationState`, `RebootOutsideServiceWindow`, and update name patterns
+- Background WU check runs independently of dashboard (no need to open UI to get toasted)
 - Removed YubiKey slot 9d from display
-- Admin panel: increased spacing between enabled toggle and nag settings
-- Version footer: displays EA version and Windows build info
-- Software Center button fix (scope issue)
-- WMI query timeout (30s) to prevent hangs
+- Admin panel: nag controls moved to separate styled row below enabled toggle
+- Version footer: displays "Endpoint Advisor v7.0.0" and Windows build info
+- Software Center button scope fix
+- WMI query switched to `Get-CimInstance` with 30-second timeout to prevent hangs
 
 ### v6.4.7 (Previous)
 - Legacy version — see previous repository
+
+---
 
 ## Scale
 
 - Endpoints poll a static file — no database, no concurrency issues
 - 9,000 endpoints at 15-min intervals = ~10 req/sec — trivial for any web server or GitHub CDN
 - Agents read only — nothing on the endpoint can modify the content
+- All WMI/AD/certificate queries run in isolated PowerShell runspaces — UI thread never blocks
