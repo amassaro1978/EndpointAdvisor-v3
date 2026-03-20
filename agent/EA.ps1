@@ -428,7 +428,17 @@ function Start-WULoad {
             if ($raw) {
                 foreach ($u in $raw) {
                     $rebootNeeded = $false
-                    try { $rebootNeeded = [bool]$u.IsRebootPending -or $u.EvaluationState -in @(8,9,10) } catch {}
+                    try {
+                        # Check multiple reboot indicators from CCM
+                        $rebootNeeded = [bool]$u.IsRebootPending -or
+                            $u.EvaluationState -in @(8,9,10) -or
+                            $u.RebootOutsideServiceWindow -eq $true -or
+                            ($u.OverrideServiceWindows -ne $null) -or
+                            ($u.Name -match 'Cumulative Update|Security Update|Servicing Stack')
+                    } catch {
+                        # If properties don't exist, flag cumulative/security updates as likely needing reboot
+                        try { $rebootNeeded = $u.Name -match 'Cumulative Update|Security Update|Servicing Stack' } catch {}
+                    }
                     $title = $u.Name
                     if ($rebootNeeded) { $title += " (restart required)" }
                     $updates += [PSCustomObject]@{
