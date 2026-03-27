@@ -33,6 +33,13 @@ $Config   = Get-Config
 $Hostname = $env:COMPUTERNAME
 $Username = $env:USERNAME
 
+# Read targeting group from registry (set by IT via GPO or deployment)
+$Script:DeviceGroup = ""
+try {
+    $regGroup = Get-ItemProperty -Path "HKLM:\SOFTWARE\CompanyName\targeting" -Name "GROUP" -ErrorAction SilentlyContinue
+    if ($regGroup -and $regGroup.GROUP) { $Script:DeviceGroup = $regGroup.GROUP }
+} catch {}
+
 # ---- Logging -----------------------------------------------------------------
 function Write-Log($msg) {
     try {
@@ -86,6 +93,35 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Enabled -eq $false) { continue }
         if ($item.StartDate -and ([datetime]$item.StartDate) -gt $now) { continue }
         if ($item.EndDate   -and ([datetime]$item.EndDate)   -lt $now) { continue }
+
+        # Group targeting — skip if announcement targets a specific group and we're not in it
+        if ($item.TargetGroup -and $item.TargetGroup.Trim() -ne "" -and $item.TargetGroup -ne "All") {
+            if ($Script:DeviceGroup -ne $item.TargetGroup) { continue }
+        }
+
+        # Conditional: password_expiry — only show if user password expires within threshold
+        if ($item.Condition -eq "password_expiry") {
+            $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+            $daysLeft = $null
+            try {
+                $searcher = [adsisearcher]"(samaccountname=$env:USERNAME)"
+                $searcher.PropertiesToLoad.Add("msDS-UserPasswordExpiryTimeComputed") | Out-Null
+                $adResult = $searcher.FindOne()
+                if ($adResult) {
+                    $expiryProp = $adResult.Properties["msds-userpasswordexpirytimecomputed"]
+                    if ($expiryProp.Count -gt 0) {
+                        $ft = $expiryProp[0]
+                        if ($ft -gt 0 -and $ft -ne [Int64]::MaxValue) {
+                            $expiryDate = [datetime]::FromFileTime($ft)
+                            $daysLeft   = [math]::Ceiling(($expiryDate - [datetime]::Now).TotalDays)
+                        }
+                    }
+                }
+            } catch {}
+            # Only include if daysLeft is known and within threshold
+            if ($null -eq $daysLeft -or $daysLeft -gt $thresholdDays) { continue }
+        }
+
         $results.Add($item) | Out-Null
     }
     return $results.ToArray()
@@ -171,12 +207,64 @@ function Register-AppId {
 }
 $Script:ToastAppId = Register-AppId
 
-function Show-Toast($title, $message, $priority) {
+function Show-Toast($title, $message, $priority, [string]$toastType = "announcement") {
+    # toastType: "announcement" | "update"
     try {
         [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
         [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime]                       | Out-Null
+
+        $escapedTitle   = [System.Security.SecurityElement]::Escape($title)
+        $escapedMessage = [System.Security.SecurityElement]::Escape($message)
+
+        if ($toastType -eq "update") {
+            # System update toast — "Update Now", "Snooze", "Dismiss"
+            $toastXml = @"
+<toast scenario='reminder' duration='long'>
+  <visual>
+    <binding template='ToastGeneric'>
+      <text>$escapedTitle</text>
+      <text>$escapedMessage</text>
+    </binding>
+  </visual>
+  <actions>
+    <action content='Update Now' activationType='protocol' arguments='softwarecenter:'/>
+    <action content='Snooze' activationType='system' arguments='snooze' hint-inputId='snoozeTime'/>
+    <action content='Dismiss' activationType='system' arguments='dismiss'/>
+  </actions>
+</toast>
+"@
+        } elseif ($priority -eq 'critical' -or $priority -eq 'high') {
+            # Persistent reminder-style toast for critical/high announcements
+            $toastXml = @"
+<toast scenario='reminder' duration='long'>
+  <visual>
+    <binding template='ToastGeneric'>
+      <text>$escapedTitle</text>
+      <text>$escapedMessage</text>
+    </binding>
+  </visual>
+  <actions>
+    <action content='Acknowledge' activationType='background' arguments='acknowledge'/>
+    <action content='Snooze' activationType='system' arguments='snooze' hint-inputId='snoozeTime'/>
+  </actions>
+</toast>
+"@
+        } else {
+            # Normal (info/warning) toast — standard style, no persistent scenario
+            $toastXml = @"
+<toast>
+  <visual>
+    <binding template='ToastGeneric'>
+      <text>$escapedTitle</text>
+      <text>$escapedMessage</text>
+    </binding>
+  </visual>
+</toast>
+"@
+        }
+
         $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
-        $xml.LoadXml("<toast><visual><binding template='ToastGeneric'><text>$([System.Security.SecurityElement]::Escape($title))</text><text>$([System.Security.SecurityElement]::Escape($message))</text></binding></visual></toast>")
+        $xml.LoadXml($toastXml)
         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($Script:ToastAppId).Show([Windows.UI.Notifications.ToastNotification]::new($xml))
     } catch {
         $ico = switch ($priority) { 'critical'{'Error'} 'warning'{'Warning'} default{'Info'} }
@@ -652,16 +740,57 @@ function Start-AccountLoad {
             }
         } catch {}
 
-        # Email signing (S/MIME) certificate
+        # Smart card cert detection — physical, virtual, and YubiKey PIV certs in Cert:\CurrentUser\My
         try {
-            $emailCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
-                $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.4"  # Secure Email OID
-            } | Sort-Object NotAfter -Descending | Select-Object -First 1
-            if ($emailCert) {
-                $daysLeft = [math]::Ceiling(($emailCert.NotAfter - [datetime]::Now).TotalDays)
+            $allUserCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue
+            # Physical smart card certs: check Enhanced Key Usage for Smart Card Logon OID (1.3.6.1.4.1.311.20.2.2)
+            # Also check via KSP provider name patterns
+            $scCerts = $allUserCerts | Where-Object {
+                $_.HasPrivateKey -and (
+                    $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.4.1.311.20.2.2" -or  # Smart Card Logon
+                    ($_.Subject -match "Smart ?Card" -or $_.Issuer -match "Smart ?Card") -or
+                    ($_.Subject -match "Virtual" -or $_.Issuer -match "Virtual")
+                )
+            } | Sort-Object NotAfter -Descending
+
+            if ($scCerts) {
+                $first = $scCerts | Select-Object -First 1
+                $daysLeft = [math]::Ceiling(($first.NotAfter - [datetime]::Now).TotalDays)
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
-                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($first.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                $certRows += ,@("Smart Card Cert:", $label, $color)
+            }
+        } catch {}
+
+        # Email signing (S/MIME) certificate — Digital Signature OID 1.3.6.1.5.5.7.3.4 (Secure Email)
+        try {
+            $emailSignCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
+                $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.4"  # Secure Email / S/MIME
+            } | Sort-Object NotAfter -Descending | Select-Object -First 1
+            if ($emailSignCert) {
+                $daysLeft = [math]::Ceiling(($emailSignCert.NotAfter - [datetime]::Now).TotalDays)
+                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
+                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailSignCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                 $certRows += ,@("Email Signing Cert:", $label, $color)
+            }
+        } catch {}
+
+        # Email encryption certificate — Key Encipherment usage + Secure Email OID (1.3.6.1.5.5.7.3.4)
+        # Separate from signing: look for Key Encipherment key usage flag (0x20 = 32)
+        try {
+            $emailEncCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
+                # Key Encipherment = 0x20 in X509KeyUsageFlags
+                $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.4" -and
+                ($_.Extensions | Where-Object { $_ -is [System.Security.Cryptography.X509Certificates.X509KeyUsageExtension] } |
+                    ForEach-Object { $_.KeyUsages -band [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment }) -ne 0
+            } | Sort-Object NotAfter -Descending | Select-Object -First 1
+
+            # Only add if distinct from signing cert (different thumbprint)
+            if ($emailEncCert -and ($null -eq $emailSignCert -or $emailEncCert.Thumbprint -ne $emailSignCert.Thumbprint)) {
+                $daysLeft = [math]::Ceiling(($emailEncCert.NotAfter - [datetime]::Now).TotalDays)
+                $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
+                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailEncCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                $certRows += ,@("Email Encryption Cert:", $label, $color)
             }
         } catch {}
 
@@ -791,14 +920,14 @@ function Show-Dashboard {
     $annPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($annPanel) | Out-Null
 
-    # Software Updates (BigFix)
-    $panel.Children.Add((New-SectionHeader "BigFix Software Updates")) | Out-Null
+    # Application Updates (BigFix)
+    $panel.Children.Add((New-SectionHeader "Application Updates")) | Out-Null
     $swPanel = New-Object System.Windows.Controls.StackPanel
     $swPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($swPanel) | Out-Null
 
-    # Pending Windows Updates
-    $panel.Children.Add((New-SectionHeader "System Patch Updates")) | Out-Null
+    # Microsoft Updates (Windows/CCM patches)
+    $panel.Children.Add((New-SectionHeader "Microsoft Updates")) | Out-Null
     $wuPanel = New-Object System.Windows.Controls.StackPanel
     $wuPanel.Children.Add((New-InfoText "Loading...")) | Out-Null
     $panel.Children.Add($wuPanel) | Out-Null
@@ -874,7 +1003,7 @@ function Start-ContentRefresh {
                 # Only toast/nag for critical announcements — info/warning show in dashboard only
                 if ($a.Priority -eq 'critical') {
                     $snippet = if ($a.Text) { $a.Text.Substring(0, [Math]::Min(200, $a.Text.Length)) } else { "" }
-                    Show-Toast $a.Title $snippet $a.Priority
+                    Show-Toast $a.Title $snippet $a.Priority "announcement"
                 }
             }
         }
@@ -908,12 +1037,12 @@ $toastTimer.Add_Tick({
     if ($Script:ToastFlags.RestartCount -gt 0) {
         $count = $Script:ToastFlags.RestartCount
         $Script:ToastFlags.RestartCount = 0
-        Show-Toast "System Restart Required" "$count update(s) require a restart. Please open Software Center to apply the update." "critical"
+        Show-Toast "System Restart Required" "$count update(s) require a restart. Open Software Center to apply and restart." "critical" "update"
     }
     if ($Script:ToastFlags.PatchCount -gt 0) {
         $count = $Script:ToastFlags.PatchCount
         $Script:ToastFlags.PatchCount = 0
-        Show-Toast "Software Updates Available" "$count update(s) available in Software Center. Please install at your earliest convenience." "info"
+        Show-Toast "Microsoft Updates Available" "$count update(s) available in Software Center. Please install at your earliest convenience." "info" "update"
     }
 })
 $toastTimer.Start()

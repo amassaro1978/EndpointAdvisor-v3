@@ -245,6 +245,35 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
           </span>
         </div>
 
+        <!-- Target Group -->
+        <div class="form-group" style="margin-top:12px">
+          <label>Target Group (optional)</label>
+          <input id="fTargetGroup" placeholder="Leave blank for all devices. E.g. FINANCE, HR, REMOTE">
+          <span style="font-size:10px;color:var(--muted)">Agent reads HKLM\SOFTWARE\CompanyName\targeting\GROUP. Leave blank to target all.</span>
+        </div>
+
+        <!-- Condition block -->
+        <div class="form-group" style="margin-top:12px">
+          <label>Condition (optional)</label>
+          <select id="fCondition" onchange="onConditionChange()">
+            <option value="">None — always show when active</option>
+            <option value="password_expiry">Password Expiry — only show within N days of expiry</option>
+          </select>
+        </div>
+        <div id="conditionBlock" class="condition-block" style="display:none;margin-top:0">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Threshold Days</label>
+              <input id="fCondThreshold" type="number" value="14" min="1" placeholder="14">
+              <span style="font-size:10px;color:var(--muted)">Show announcement if password expires within this many days.</span>
+            </div>
+            <div class="form-group">
+              <label>KB / Info Link URL (optional)</label>
+              <input id="fCondKbUrl" type="url" placeholder="https://kb.company.com/password-change">
+            </div>
+          </div>
+        </div>
+
         <!-- Links -->
         <div class="form-group" style="margin-top:10px">
           <label>Links</label>
@@ -482,13 +511,15 @@ function renderList(containerId, items, type) {
     const card = document.createElement('div')
     card.className = `card priority-${item.Priority||'info'} ${item.Enabled===false?'disabled':''}`
     card.onclick = () => editAnnouncement(item.id)
-    const nagBadge = item.NagEnabled ? `<span class="pill pill-warning">Nag</span>` : ''
-    const disBadge = item.Enabled===false ? `<span class="pill pill-disabled">Disabled</span>` : ''
+    const nagBadge     = item.NagEnabled ? `<span class="pill pill-warning">Nag</span>` : ''
+    const disBadge     = item.Enabled===false ? `<span class="pill pill-disabled">Disabled</span>` : ''
+    const groupBadge   = item.TargetGroup && item.TargetGroup !== 'All' ? `<span class="pill pill-targeted">🎯 ${item.TargetGroup}</span>` : ''
+    const condBadge    = item.Condition ? `<span class="pill pill-warning">⚙️ ${item.Condition}</span>` : ''
     card.innerHTML = `
       <div class="card-header">
         <span class="card-title">${item.Title||'(no title)'}</span>
         <span class="pill pill-${item.Priority||'info'}">${item.Priority||'info'}</span>
-        ${nagBadge}${disBadge}
+        ${nagBadge}${disBadge}${groupBadge}${condBadge}
       </div>
       <div class="card-body">${(item.Text||'').substring(0,120)}${(item.Text||'').length>120?'...':''}</div>
       ${item.StartDate||item.EndDate ? `<div class="card-footer" style="font-size:11px;color:var(--muted)">${item.StartDate?'From '+fmtDate(item.StartDate):''}${item.EndDate?' Until '+fmtDate(item.EndDate):''}</div>` : ''}
@@ -518,7 +549,7 @@ function fmtDate(d) { try { return new Date(d).toLocaleDateString() } catch { re
 // ---- Edit announcement -------------------------------------------------------
 function newAnnouncement() {
   const id   = 'ann-' + Date.now()
-  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, Links:[] }
+  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, TargetGroup:null, Condition:null, ConditionThresholdDays:null, ConditionKbUrl:null, Links:[] }
   state.data.Data.Announcements.Default.push(item)
   renderAll()
   editAnnouncement(id)
@@ -541,6 +572,11 @@ function editAnnouncement(id) {
   $('fNagInterval').value = item.NagIntervalMinutes || 30
   $('fStartDate').value   = item.StartDate ? toLocalDT(item.StartDate) : ''
   $('fEndDate').value     = item.EndDate   ? toLocalDT(item.EndDate)   : ''
+  $('fTargetGroup').value = item.TargetGroup || ''
+  $('fCondition').value   = item.Condition || ''
+  $('fCondThreshold').value = item.ConditionThresholdDays || 14
+  $('fCondKbUrl').value   = item.ConditionKbUrl || ''
+  onConditionChange()
 
   setPriority(item.Priority || 'info')
   renderLinks(item.Links || [])
@@ -564,8 +600,18 @@ function saveAnnouncement() {
   if (activePB) item.Priority = activePB.getAttribute('data-p')
   item.NagEnabled         = $('fNag').checked
   item.NagIntervalMinutes = parseInt($('fNagInterval').value) || 30
-  item.StartDate = $('fStartDate').value ? new Date($('fStartDate').value).toISOString() : null
-  item.EndDate   = $('fEndDate').value   ? new Date($('fEndDate').value).toISOString()   : null
+  item.StartDate   = $('fStartDate').value ? new Date($('fStartDate').value).toISOString() : null
+  item.EndDate     = $('fEndDate').value   ? new Date($('fEndDate').value).toISOString()   : null
+  item.TargetGroup = $('fTargetGroup').value.trim() || null
+  const cond = $('fCondition').value
+  item.Condition   = cond || null
+  if (cond === 'password_expiry') {
+    item.ConditionThresholdDays = parseInt($('fCondThreshold').value) || 14
+    item.ConditionKbUrl         = $('fCondKbUrl').value.trim() || null
+  } else {
+    item.ConditionThresholdDays = null
+    item.ConditionKbUrl         = null
+  }
   item.Links     = getLinks()
 
   $('editPanel').style.display = 'none'
@@ -661,6 +707,12 @@ function linkRow(name, url, i, containerId, pfx) {
     <button onclick="this.closest('.link-row').remove()" style="background:var(--red);border:none;color:#fff;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px">x</button>
   `
   return d
+}
+
+// ---- Condition toggle --------------------------------------------------------
+function onConditionChange() {
+  const cond = $('fCondition').value
+  $('conditionBlock').style.display = cond ? '' : 'none'
 }
 
 // ---- Priority buttons --------------------------------------------------------
