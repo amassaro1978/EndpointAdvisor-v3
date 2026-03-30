@@ -26,6 +26,12 @@ $DefaultConfig = @{
 # Set this to match your organization's registry namespace (e.g. "Contoso", "AcmeCorp")
 $Script:CompanyRegPath = "CompanyName"
 
+# ---- CHANGE THIS to your company's display name for branding -----------------
+# This appears in the window title, footer, toasts, tray tooltip, etc.
+# Example: "Acme Corp" → shows as "Acme Corp Endpoint Advisor"
+$Script:CompanyBrand = ""   # Leave empty for just "Endpoint Advisor"
+$Script:BrandedName  = if ($Script:CompanyBrand) { "$($Script:CompanyBrand) Endpoint Advisor" } else { "Endpoint Advisor" }
+
 function Get-Config {
     if (Test-Path $ConfigPath) {
         try { return Get-Content $ConfigPath -Raw | ConvertFrom-Json }
@@ -169,7 +175,7 @@ function Get-TrayIcon([bool]$hasUnread = $false) {
 function New-TrayIcon {
     $tray = New-Object System.Windows.Forms.NotifyIcon
     $tray.Icon    = Get-TrayIcon $false
-    $tray.Text    = "Endpoint Advisor"
+    $tray.Text    = $Script:BrandedName
     $tray.Visible = $true
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -206,7 +212,7 @@ function Register-AppId {
     $regPath = "HKCU:\Software\Classes\AppUserModelId\$appId"
     if (-not (Test-Path $regPath)) {
         New-Item -Path $regPath -Force | Out-Null
-        New-ItemProperty -Path $regPath -Name "DisplayName" -Value "Endpoint Advisor" -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $regPath -Name "DisplayName" -Value $Script:BrandedName -PropertyType String -Force | Out-Null
     }
     return $appId
 }
@@ -502,14 +508,14 @@ function Start-BigFixLoad {
                     $btn.Content = "Open Self Service  —  Install Updates"; $btn.Background = & $mkB "#2563EB"; $btn.Foreground = & $mkB "#FFF"
                     $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,8,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
                     $btn.HorizontalAlignment = "Left"; $btn.FontWeight = "SemiBold"
-                    $btn.Add_Click({ try { Start-Process "C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe" } catch { [System.Windows.MessageBox]::Show("Could not launch Self Service: $_","Endpoint Advisor","OK","Warning") } })
+                    $btn.Add_Click({ try { Start-Process "C:\Program Files (x86)\BigFix Enterprise\BigFix Self Service Application\BigFixSSA.exe" } catch { [System.Windows.MessageBox]::Show("Could not launch Self Service: $_",$Script:BrandedName,"OK","Warning") } })
                     $Container.Children.Add($btn) | Out-Null
                 } elseif ($hasBESUI) {
                     $btn = New-Object System.Windows.Controls.Button
                     $btn.Content = "Open BigFix Client UI"; $btn.Background = & $mkB "#2563EB"; $btn.Foreground = & $mkB "#FFF"
                     $btn.BorderThickness = "0"; $btn.Padding = "14,6"; $btn.Margin = "4,8,0,4"; $btn.Cursor = [System.Windows.Input.Cursors]::Hand
                     $btn.HorizontalAlignment = "Left"; $btn.FontWeight = "SemiBold"
-                    $btn.Add_Click({ try { Start-Process "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe" } catch { [System.Windows.MessageBox]::Show("Could not launch BigFix Client UI: $_","Endpoint Advisor","OK","Warning") } })
+                    $btn.Add_Click({ try { Start-Process "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClientUI.exe" } catch { [System.Windows.MessageBox]::Show("Could not launch BigFix Client UI: $_",$Script:BrandedName,"OK","Warning") } })
                     $Container.Children.Add($btn) | Out-Null
                 }
             } else {
@@ -930,7 +936,7 @@ function Show-Dashboard {
     $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Endpoint Advisor" Width="620" Height="740"
+        Title="$($Script:BrandedName)" Width="620" Height="740"
         WindowStartupLocation="CenterScreen" Background="#F1F5F9" ShowInTaskbar="False">
     <Window.Resources>
         <Style TargetType="TextBlock">
@@ -950,7 +956,7 @@ function Show-Dashboard {
         </Grid.RowDefinitions>
         <Border Grid.Row="0" Background="#4A90D9" Padding="16,12">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Endpoint Advisor" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                <TextBlock Text="$($Script:BrandedName)" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
                 <TextBlock x:Name="HostLabel" FontSize="11" Foreground="#DBEAFE" Margin="12,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
@@ -1019,7 +1025,7 @@ function Show-Dashboard {
     $panel.Children.Add($verBlock) | Out-Null
 
     $eaVerBlock = New-Object System.Windows.Controls.TextBlock
-    $eaVerBlock.Text = "Endpoint Advisor v$($Script:EAVersion)"
+    $eaVerBlock.Text = "$($Script:BrandedName) v$($Script:EAVersion)"
     $eaVerBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#64748B")
     $eaVerBlock.FontSize = 9; $eaVerBlock.Margin = "0,0,0,4"; $eaVerBlock.HorizontalAlignment = "Center"
     $panel.Children.Add($eaVerBlock) | Out-Null
@@ -1218,6 +1224,6 @@ try {
     [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | Timer setup ERROR: $($_.Exception.Message)`r`n")
 }
 
-Write-Log "Endpoint Advisor started on $Hostname (ScriptDir=$ScriptDir)"
+Write-Log "$($Script:BrandedName) started on $Hostname (ScriptDir=$ScriptDir)"
 
 [System.Windows.Forms.Application]::Run()
