@@ -104,7 +104,7 @@ The agent displays a system tray dashboard with the following sections. Each sec
 | **How it works** | Agent polls the JSON URL on a configurable interval. Parses announcements and evaluates client-side targeting conditions. |
 | **Admin control** | Priority (info/warning/critical), enabled toggle, nag settings, links, expiration dates, target group, conditional rules |
 | **Nag behavior** | Critical announcements can be set to re-toast every X minutes until the user acknowledges them |
-| **Toast types** | Normal (auto-dismiss), Persistent (Dismiss + Snooze buttons for critical/high priority), System Update (Update Now + Snooze + Dismiss) |
+| **Toast behavior** | Only critical announcements trigger toasts — persistent with Dismiss + Snooze buttons. Info/Warning are dashboard-only (no toast). System Update toasts include Update Now + Snooze + Dismiss. |
 | **Snooze** | Windows built-in snooze — defaults to ~10 minutes, then re-fires. Toast persists even after app exits. |
 | **Tray icon** | Switches to alert icon (`EA_LOGO_MSG.ico`) when unread announcements exist |
 
