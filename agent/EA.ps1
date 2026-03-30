@@ -787,9 +787,21 @@ function Start-AccountLoad {
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($cert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
 
-                # Try to determine cert type from issuer/subject/template
+                # Determine cert type — check template name first (most reliable), then subject/issuer
+                $templateName = ""
+                try {
+                    $tmplExt = $cert.Extensions | Where-Object { $_.Oid.Value -eq "1.3.6.1.4.1.311.21.7" }
+                    if ($tmplExt) { $templateName = $tmplExt.Format($false) }
+                } catch {}
                 $certInfo = "$($cert.Subject) $($cert.Issuer)"
-                if ($certInfo -match "Yubi" -and -not $shownYubiKey) {
+
+                if ($templateName -match "(?i)virtual" -and -not $shownVirtual) {
+                    $certRows += ,@("Virtual Smart Card:", $label, $color)
+                    $shownVirtual = $true
+                } elseif ($templateName -match "(?i)yubi|(?i)piv" -and -not $shownYubiKey) {
+                    $certRows += ,@("YubiKey Cert:", $label, $color)
+                    $shownYubiKey = $true
+                } elseif ($certInfo -match "Yubi" -and $templateName -notmatch "(?i)virtual" -and -not $shownYubiKey) {
                     $certRows += ,@("YubiKey Cert:", $label, $color)
                     $shownYubiKey = $true
                 } elseif ($certInfo -match "Virtual" -and -not $shownVirtual) {
