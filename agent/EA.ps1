@@ -755,13 +755,13 @@ function Start-AccountLoad {
                 )
             } | Sort-Object NotAfter -Descending
 
-            # Get smart card readers to match certs to reader type
+            # Detect reader types via WMI (no PIN prompt)
             $readers = @{}
             try {
-                $readerList = certutil -scinfo 2>&1 | Select-String "Reader:|Microsoft Virtual Smart Card|Yubico|YubiKey" | ForEach-Object { $_.Line.Trim() }
-                foreach ($r in $readerList) {
-                    if ($r -match "Virtual") { $readers["virtual"] = $true }
-                    if ($r -match "Yubi") { $readers["yubikey"] = $true }
+                $scReaders = Get-WmiObject -Query "SELECT * FROM Win32_PnPEntity WHERE Caption LIKE '%smart card%' OR Caption LIKE '%Yubi%' OR Caption LIKE '%Virtual%'" -ErrorAction SilentlyContinue
+                foreach ($r in $scReaders) {
+                    if ($r.Caption -match "Virtual") { $readers["virtual"] = $true }
+                    if ($r.Caption -match "Yubi") { $readers["yubikey"] = $true }
                 }
             } catch {}
 
