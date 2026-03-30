@@ -248,13 +248,23 @@ The agent monitors multiple certificate types from the Windows Certificate Store
 
 ## Toast Notification System
 
-### Persistent Toasts (Critical/High Priority)
+### Announcement Toast Behavior by Priority
 
-Critical and high priority announcements use Windows `scenario="reminder"` toasts:
-- **Stay on screen** until user takes action (no auto-dismiss)
-- **Dismiss** button — marks as seen, won't show again
+| Priority | Toast? | Behavior |
+|----------|--------|----------|
+| **Info** | ❌ No | Dashboard only — no toast notification |
+| **Warning** | ❌ No | Dashboard only — no toast notification |
+| **Critical** | ✅ Yes | Persistent toast with **Dismiss** + **Snooze** buttons |
+
+### Critical Announcement Toasts
+
+Critical announcements use Windows `scenario="reminder"` toasts:
+- **Stays on screen** until the user takes action (no auto-dismiss)
+- **Dismiss** button — marks as seen, won't show again (unless Nag is enabled)
 - **Snooze** button — dismisses temporarily, comes back after ~10 minutes (Windows default)
-- Toast persists even after the EA app is closed — Windows owns the snooze timer
+- **Toast persists even after the EA app is closed** — Windows owns the snooze timer
+- **Nag behavior** — if NagEnabled is checked in the admin panel, the toast re-fires at the configured interval (default: 30 min) even after Dismiss, until the user opens the dashboard
+- Info and Warning announcements **never** trigger a toast — they are visible only in the dashboard
 
 ### System Update Toast
 
