@@ -308,10 +308,10 @@ function New-InfoText($text) {
 
 # ---- Async section: Announcements --------------------------------------------
 function Start-AnnouncementsLoad {
-    param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal)
+    param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal, $CompanyRegPath)
 
     Start-TrackedRunspace -Script {
-        param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal)
+        param($Dispatcher, $Container, $ContentDataUrl, $GitHubToken, $TrayIcon, $IconAlert, $IconNormal, $CompanyRegPath)
 
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Drawing
 
@@ -327,10 +327,23 @@ function Start-AnnouncementsLoad {
             $data    = $raw.Content | ConvertFrom-Json
             $now     = Get-Date
 
+            # Read device group inside runspace (Script: scope not shared across runspaces)
+            $deviceGroup = ""
+            try {
+                $rg = Get-ItemProperty -Path "HKLM:\SOFTWARE\$CompanyRegPath\targeting" -Name "GROUP" -ErrorAction SilentlyContinue
+                if ($rg -and $rg.GROUP) { $deviceGroup = $rg.GROUP }
+            } catch {}
+
             foreach ($item in $data.Data.Announcements.Default) {
                 if (-not $item -or $item.Enabled -eq $false) { continue }
                 if ($item.StartDate -and ([datetime]$item.StartDate) -gt $now) { continue }
                 if ($item.EndDate   -and ([datetime]$item.EndDate)   -lt $now) { continue }
+
+                # Group targeting — skip if announcement targets a specific group and we're not in it
+                if ($item.TargetGroup -and $item.TargetGroup.Trim() -ne "" -and $item.TargetGroup -ne "All") {
+                    if ($deviceGroup -ne $item.TargetGroup) { continue }
+                }
+
                 $items += $item
                 $hasUnread = $true
             }
@@ -423,6 +436,7 @@ function Start-AnnouncementsLoad {
         ContentDataUrl = $ContentDataUrl; GitHubToken = $GitHubToken
         TrayIcon       = $TrayIcon
         IconAlert      = $IconAlert;      IconNormal = $IconNormal
+        CompanyRegPath = $CompanyRegPath
     }
 }
 
@@ -1007,7 +1021,8 @@ function Show-Dashboard {
     $dispatcher = $window.Dispatcher
     Start-AnnouncementsLoad -Dispatcher $dispatcher -Container $annPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken `
-        -TrayIcon $Script:TrayIcon -IconAlert $Script:IconAlert -IconNormal $Script:IconNormal
+        -TrayIcon $Script:TrayIcon -IconAlert $Script:IconAlert -IconNormal $Script:IconNormal `
+        -CompanyRegPath $Script:CompanyRegPath
     Start-BigFixLoad   -Dispatcher $dispatcher -Container $swPanel -ScriptDir $ScriptDir
     Start-WULoad       -Dispatcher $dispatcher -Container $wuPanel -ToastFlags $Script:ToastFlags
     Start-SupportLoad  -Dispatcher $dispatcher -Container $supPanel `
