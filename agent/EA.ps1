@@ -21,6 +21,11 @@ $DefaultConfig = @{
     LogMaxSizeMB    = 2
 }
 
+# ---- CHANGE THIS to your company's registry path ----------------------------
+# Group targeting reads from: HKLM:\SOFTWARE\<CompanyRegPath>\targeting\GROUP
+# Set this to match your organization's registry namespace (e.g. "Contoso", "AcmeCorp")
+$Script:CompanyRegPath = "CompanyName"
+
 function Get-Config {
     if (Test-Path $ConfigPath) {
         try { return Get-Content $ConfigPath -Raw | ConvertFrom-Json }
@@ -36,7 +41,7 @@ $Username = $env:USERNAME
 # Read targeting group from registry (set by IT via GPO or deployment)
 $Script:DeviceGroup = ""
 try {
-    $regGroup = Get-ItemProperty -Path "HKLM:\SOFTWARE\CompanyName\targeting" -Name "GROUP" -ErrorAction SilentlyContinue
+    $regGroup = Get-ItemProperty -Path "HKLM:\SOFTWARE\$($Script:CompanyRegPath)\targeting" -Name "GROUP" -ErrorAction SilentlyContinue
     if ($regGroup -and $regGroup.GROUP) { $Script:DeviceGroup = $regGroup.GROUP }
 } catch {}
 
@@ -244,7 +249,7 @@ function Show-Toast($title, $message, $priority, [string]$toastType = "announcem
     </binding>
   </visual>
   <actions>
-    <action content='Acknowledge' activationType='background' arguments='acknowledge'/>
+    <action content='Dismiss' activationType='background' arguments='acknowledge'/>
     <action content='Snooze' activationType='system' arguments='snooze' hint-inputId='snoozeTime'/>
   </actions>
 </toast>
@@ -740,25 +745,58 @@ function Start-AccountLoad {
             }
         } catch {}
 
-        # Smart card cert detection — physical, virtual, and YubiKey PIV certs in Cert:\CurrentUser\My
+        # Smart card cert detection — enumerate by reader to distinguish physical, virtual, and YubiKey
         try {
             $allUserCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue
-            # Physical smart card certs: check Enhanced Key Usage for Smart Card Logon OID (1.3.6.1.4.1.311.20.2.2)
-            # Also check via KSP provider name patterns
             $scCerts = $allUserCerts | Where-Object {
                 $_.HasPrivateKey -and (
                     $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.4.1.311.20.2.2" -or  # Smart Card Logon
-                    ($_.Subject -match "Smart ?Card" -or $_.Issuer -match "Smart ?Card") -or
-                    ($_.Subject -match "Virtual" -or $_.Issuer -match "Virtual")
+                    $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.2"           # Client Authentication
                 )
             } | Sort-Object NotAfter -Descending
 
-            if ($scCerts) {
-                $first = $scCerts | Select-Object -First 1
-                $daysLeft = [math]::Ceiling(($first.NotAfter - [datetime]::Now).TotalDays)
+            # Get smart card readers to match certs to reader type
+            $readers = @{}
+            try {
+                $readerList = certutil -scinfo 2>&1 | Select-String "Reader:|Microsoft Virtual Smart Card|Yubico|YubiKey" | ForEach-Object { $_.Line.Trim() }
+                foreach ($r in $readerList) {
+                    if ($r -match "Virtual") { $readers["virtual"] = $true }
+                    if ($r -match "Yubi") { $readers["yubikey"] = $true }
+                }
+            } catch {}
+
+            # Track which cert types we've shown
+            $shownPhysical = $false; $shownVirtual = $false; $shownYubiKey = $false
+
+            foreach ($cert in $scCerts) {
+                $daysLeft = [math]::Ceiling(($cert.NotAfter - [datetime]::Now).TotalDays)
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
-                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($first.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
-                $certRows += ,@("Smart Card Cert:", $label, $color)
+                $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($cert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+
+                # Try to determine cert type from issuer/subject/template
+                $certInfo = "$($cert.Subject) $($cert.Issuer)"
+                if ($certInfo -match "Yubi" -and -not $shownYubiKey) {
+                    $certRows += ,@("YubiKey Cert:", $label, $color)
+                    $shownYubiKey = $true
+                } elseif ($certInfo -match "Virtual" -and -not $shownVirtual) {
+                    $certRows += ,@("Virtual Smart Card:", $label, $color)
+                    $shownVirtual = $true
+                } elseif (-not $shownPhysical) {
+                    $certRows += ,@("Smart Card Cert:", $label, $color)
+                    $shownPhysical = $true
+                }
+            }
+
+            # If we detected a virtual reader but no cert matched by name, show it separately
+            if ($readers["virtual"] -and -not $shownVirtual -and $scCerts.Count -gt 1) {
+                # The cert that isn't YubiKey and isn't the first physical one is likely virtual
+                $remaining = $scCerts | Select-Object -Skip ([int]$shownPhysical + [int]$shownYubiKey) | Select-Object -First 1
+                if ($remaining) {
+                    $daysLeft = [math]::Ceiling(($remaining.NotAfter - [datetime]::Now).TotalDays)
+                    $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
+                    $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($remaining.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
+                    $certRows += ,@("Virtual Smart Card:", $label, $color)
+                }
             }
         } catch {}
 
@@ -779,14 +817,14 @@ function Start-AccountLoad {
         # Separate from signing: look for Key Encipherment key usage flag (0x20 = 32)
         try {
             $emailEncCert = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object {
-                # Key Encipherment = 0x20 in X509KeyUsageFlags
                 $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.4" -and
-                ($_.Extensions | Where-Object { $_ -is [System.Security.Cryptography.X509Certificates.X509KeyUsageExtension] } |
-                    ForEach-Object { $_.KeyUsages -band [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment }) -ne 0
+                $_.HasPrivateKey -and
+                (($_.Extensions | Where-Object { $_ -is [System.Security.Cryptography.X509Certificates.X509KeyUsageExtension] } |
+                    ForEach-Object { ($_.KeyUsages -band [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment) -ne 0 }) -contains $true)
             } | Sort-Object NotAfter -Descending | Select-Object -First 1
 
-            # Only add if distinct from signing cert (different thumbprint)
-            if ($emailEncCert -and ($null -eq $emailSignCert -or $emailEncCert.Thumbprint -ne $emailSignCert.Thumbprint)) {
+            # Show encryption cert even if same as signing cert (multi-purpose certs are common)
+            if ($emailEncCert) {
                 $daysLeft = [math]::Ceiling(($emailEncCert.NotAfter - [datetime]::Now).TotalDays)
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailEncCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
