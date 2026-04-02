@@ -110,6 +110,38 @@ function Get-RelevantAnnouncements($data) {
             if ($Script:DeviceGroup -ne $item.TargetGroup) { continue }
         }
 
+        # Registry key targeting — skip if key/value doesn't match on this machine
+        if ($item.TargetRegKey -and $item.TargetRegKey.Trim() -ne "") {
+            $regMatch = $false
+            try {
+                $regPath = $item.TargetRegKey.Trim()
+                # Normalize: accept both HKLM\... and Registry::HKLM\... formats
+                if ($regPath -notmatch '^Registry::') {
+                    $regPath = "Registry::$regPath"
+                }
+                if (Test-Path $regPath) {
+                    if ($item.TargetRegValue -and $item.TargetRegValue.Trim() -ne "") {
+                        # Check specific value
+                        $val = Get-ItemProperty -Path $regPath -Name $item.TargetRegValue.Trim() -ErrorAction SilentlyContinue
+                        if ($val) {
+                            $actualData = $val.($item.TargetRegValue.Trim())
+                            if ($item.TargetRegData -and $item.TargetRegData.Trim() -ne "") {
+                                # Match value data (contains)
+                                $regMatch = "$actualData" -like "*$($item.TargetRegData.Trim())*"
+                            } else {
+                                # Value exists, no data filter
+                                $regMatch = $true
+                            }
+                        }
+                    } else {
+                        # Key exists, no value check needed
+                        $regMatch = $true
+                    }
+                }
+            } catch {}
+            if (-not $regMatch) { continue }
+        }
+
         # Conditional: password_expiry — only show if user password expires within threshold
         if ($item.Condition -eq "password_expiry") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
@@ -131,6 +163,39 @@ function Get-RelevantAnnouncements($data) {
             } catch {}
             # Only include if daysLeft is known and within threshold
             if ($null -eq $daysLeft -or $daysLeft -gt $thresholdDays) { continue }
+        }
+
+        # Conditional: cert_expiry — only show if any certificate expires within threshold
+        if ($item.Condition -eq "cert_expiry") {
+            $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+            $certExpiringSoon = $false
+            try {
+                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue
+                foreach ($c in $allCerts) {
+                    $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
+                    if ($d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                }
+            } catch {}
+            # Also check YubiKey certs if ykman is available
+            if (-not $certExpiringSoon) {
+                $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+                if (Test-Path $ykPath) {
+                    try {
+                        foreach ($slot in @("9a", "9c", "9e")) {
+                            $pem = & $ykPath "piv" "certificates" "export" $slot "-" 2>$null
+                            if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                $tmp = [System.IO.Path]::GetTempFileName()
+                                ($pem -join "`n") | Out-File $tmp -Encoding ASCII
+                                $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                Remove-Item $tmp -Force
+                                $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                if ($d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                            }
+                        }
+                    } catch {}
+                }
+            }
+            if (-not $certExpiringSoon) { continue }
         }
 
         $results.Add($item) | Out-Null
@@ -896,9 +961,6 @@ function Start-AccountLoad {
                 $rows += ,@("Password Expires:", $pwdExpiryStr, "#1E293B")
             }
 
-            # Add certificate rows
-            foreach ($cr in $certRows) { $rows += ,$cr }
-
             foreach ($r in $rows) {
                 $row = New-Object System.Windows.Controls.RowDefinition; $row.Height = "Auto"
                 $grid.RowDefinitions.Add($row)
@@ -921,6 +983,58 @@ function Start-AccountLoad {
 
             $bd.Child = $grid
             $Container.Children.Add($bd) | Out-Null
+
+            # ---- Certificate rows (enriched with friendly names + status) ----
+            $certMeta = @{
+                "YubiKey (Slot 9a):"     = @("YubiKey (Slot 9A):", "Hardware token authentication")
+                "YubiKey (Slot 9c):"     = @("YubiKey (Slot 9C):", "Hardware token digital signature")
+                "YubiKey (Slot 9e):"     = @("YubiKey (Slot 9E):", "Hardware token card authentication")
+                "YubiKey Cert:"          = @("YubiKey Certificate:", "Hardware token authentication")
+                "Smart Card Cert:"       = @("Smart Card:", "Physical smart card login")
+                "Virtual Smart Card:"    = @("Virtual Smart Card:", "Virtual smart card login")
+                "Email Signing Cert:"    = @("Signing Certificate:", "Used for email signing")
+                "Email Encryption Cert:" = @("Encryption Certificate:", "Used for email encryption")
+            }
+
+            foreach ($cr in $certRows) {
+                $meta = $certMeta[$cr[0]]
+                $friendlyLabel = if ($meta) { $meta[0] } else { $cr[0] }
+                $subtitle      = if ($meta) { $meta[1] } else { $null }
+                $isExpired = $cr[1] -eq "EXPIRED"
+                $isWarning = $cr[2] -eq "#D97706"
+                $statusTag = if ($isExpired) { "[EXPIRED]" } elseif ($isWarning) { "[WARNING]" } else { "[OK]" }
+                $statusWord = if ($isExpired) { "EXPIRED" } elseif ($isWarning) { "EXPIRING SOON" } else { "VALID" }
+                $expiryDetail = if ($isExpired) { "" } else { " — Expires $($cr[1])" }
+                $enrichedValue = "$statusTag $statusWord$expiryDetail"
+
+                # Label row (friendly name + subtitle)
+                $row = New-Object System.Windows.Controls.RowDefinition; $row.Height = "Auto"
+                $grid.RowDefinitions.Add($row)
+                $rowIdx = $grid.RowDefinitions.Count - 1
+
+                $lblStack = New-Object System.Windows.Controls.StackPanel
+                $lbl = New-Object System.Windows.Controls.TextBlock
+                $lbl.Text = $friendlyLabel; $lbl.Foreground = & $mkB "#64748B"
+                $lbl.FontSize = 12; $lbl.FontWeight = "SemiBold"
+                $lblStack.Children.Add($lbl) | Out-Null
+                if ($subtitle) {
+                    $sub = New-Object System.Windows.Controls.TextBlock
+                    $sub.Text = $subtitle; $sub.Foreground = & $mkB "#94A3B8"
+                    $sub.FontSize = 10
+                    $lblStack.Children.Add($sub) | Out-Null
+                }
+                $lblStack.Margin = "0,4,16,4"
+                [System.Windows.Controls.Grid]::SetRow($lblStack, $rowIdx)
+                [System.Windows.Controls.Grid]::SetColumn($lblStack, 0)
+                $grid.Children.Add($lblStack) | Out-Null
+
+                $val = New-Object System.Windows.Controls.TextBlock
+                $val.Text = $enrichedValue; $val.Foreground = & $mkB $cr[2]
+                $val.FontSize = 12; $val.Margin = "0,4,0,4"; $val.VerticalAlignment = "Center"
+                [System.Windows.Controls.Grid]::SetRow($val, $rowIdx)
+                [System.Windows.Controls.Grid]::SetColumn($val, 1)
+                $grid.Children.Add($val) | Out-Null
+            }
         })
     } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
 }

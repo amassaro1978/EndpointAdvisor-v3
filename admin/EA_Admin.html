@@ -252,12 +252,34 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
           <span style="font-size:10px;color:var(--muted)">Agent reads HKLM\SOFTWARE\CompanyName\targeting\GROUP. Leave blank to target all.</span>
         </div>
 
+        <!-- Registry targeting -->
+        <div class="form-group" style="margin-top:12px">
+          <label>Registry Key Targeting (optional)</label>
+          <input id="fTargetRegKey" placeholder="HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion">
+          <span style="font-size:10px;color:var(--muted)">Only show if this registry key exists on the endpoint.</span>
+        </div>
+        <div id="regValueBlock" style="display:none">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Value Name (optional)</label>
+              <input id="fTargetRegValue" placeholder="DisplayVersion">
+              <span style="font-size:10px;color:var(--muted)">Check a specific value under the key. Leave blank to just check key existence.</span>
+            </div>
+            <div class="form-group">
+              <label>Value Data Match (optional)</label>
+              <input id="fTargetRegData" placeholder="24H2">
+              <span style="font-size:10px;color:var(--muted)">Only show if value data contains this text. Leave blank to match any value.</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Condition block -->
         <div class="form-group" style="margin-top:12px">
           <label>Condition (optional)</label>
           <select id="fCondition" onchange="onConditionChange()">
             <option value="">None — always show when active</option>
             <option value="password_expiry">Password Expiry — only show within N days of expiry</option>
+            <option value="cert_expiry">Certificate Expiry — only show within N days of cert expiry</option>
           </select>
         </div>
         <div id="conditionBlock" class="condition-block" style="display:none;margin-top:0">
@@ -265,7 +287,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
             <div class="form-group">
               <label>Threshold Days</label>
               <input id="fCondThreshold" type="number" value="14" min="1" placeholder="14">
-              <span style="font-size:10px;color:var(--muted)">Show announcement if password expires within this many days.</span>
+              <span id="condThresholdHint" style="font-size:10px;color:var(--muted)">Show announcement if password expires within this many days.</span>
             </div>
             <div class="form-group">
               <label>KB / Info Link URL (optional)</label>
@@ -508,18 +530,27 @@ function renderList(containerId, items, type) {
     return
   }
   items.forEach(item => {
+    const now = new Date()
+    const isDisabled = item.Enabled === false
+    const isExpired = item.EndDate && new Date(item.EndDate) < now
+    const isScheduled = item.StartDate && new Date(item.StartDate) > now
+    const isInactive = isDisabled || isExpired || isScheduled
+
     const card = document.createElement('div')
-    card.className = `card priority-${item.Priority||'info'} ${item.Enabled===false?'disabled':''}`
+    card.className = `card priority-${item.Priority||'info'} ${isInactive?'disabled':''}`
     card.onclick = () => editAnnouncement(item.id)
     const nagBadge     = item.NagEnabled ? `<span class="pill pill-warning">Nag</span>` : ''
-    const disBadge     = item.Enabled===false ? `<span class="pill pill-disabled">Disabled</span>` : ''
+    const disBadge     = isDisabled ? `<span class="pill pill-disabled">Disabled</span>` : ''
+    const expBadge     = isExpired ? `<span class="pill pill-disabled">Expired</span>` : ''
+    const schedBadge   = isScheduled ? `<span class="pill pill-disabled">Scheduled</span>` : ''
     const groupBadge   = item.TargetGroup && item.TargetGroup !== 'All' ? `<span class="pill pill-targeted">🎯 ${item.TargetGroup}</span>` : ''
+    const regBadge     = item.TargetRegKey ? `<span class="pill pill-warning">🔑 Registry</span>` : ''
     const condBadge    = item.Condition ? `<span class="pill pill-warning">⚙️ ${item.Condition}</span>` : ''
     card.innerHTML = `
       <div class="card-header">
         <span class="card-title">${item.Title||'(no title)'}</span>
         <span class="pill pill-${item.Priority||'info'}">${item.Priority||'info'}</span>
-        ${nagBadge}${disBadge}${groupBadge}${condBadge}
+        ${nagBadge}${disBadge}${expBadge}${schedBadge}${groupBadge}${regBadge}${condBadge}
       </div>
       <div class="card-body">${(item.Text||'').substring(0,120)}${(item.Text||'').length>120?'...':''}</div>
       ${item.StartDate||item.EndDate ? `<div class="card-footer" style="font-size:11px;color:var(--muted)">${item.StartDate?'From '+fmtDate(item.StartDate):''}${item.EndDate?' Until '+fmtDate(item.EndDate):''}</div>` : ''}
@@ -572,7 +603,11 @@ function editAnnouncement(id) {
   $('fNagInterval').value = item.NagIntervalMinutes || 30
   $('fStartDate').value   = item.StartDate ? toLocalDT(item.StartDate) : ''
   $('fEndDate').value     = item.EndDate   ? toLocalDT(item.EndDate)   : ''
-  $('fTargetGroup').value = item.TargetGroup || ''
+  $('fTargetGroup').value  = item.TargetGroup || ''
+  $('fTargetRegKey').value  = item.TargetRegKey || ''
+  $('fTargetRegValue').value = item.TargetRegValue || ''
+  $('fTargetRegData').value  = item.TargetRegData || ''
+  onRegKeyChange()
   $('fCondition').value   = item.Condition || ''
   $('fCondThreshold').value = item.ConditionThresholdDays || 14
   $('fCondKbUrl').value   = item.ConditionKbUrl || ''
@@ -602,10 +637,13 @@ function saveAnnouncement() {
   item.NagIntervalMinutes = parseInt($('fNagInterval').value) || 30
   item.StartDate   = $('fStartDate').value ? new Date($('fStartDate').value).toISOString() : null
   item.EndDate     = $('fEndDate').value   ? new Date($('fEndDate').value).toISOString()   : null
-  item.TargetGroup = $('fTargetGroup').value.trim() || null
+  item.TargetGroup    = $('fTargetGroup').value.trim() || null
+  item.TargetRegKey   = $('fTargetRegKey').value.trim() || null
+  item.TargetRegValue = $('fTargetRegValue').value.trim() || null
+  item.TargetRegData  = $('fTargetRegData').value.trim() || null
   const cond = $('fCondition').value
   item.Condition   = cond || null
-  if (cond === 'password_expiry') {
+  if (cond === 'password_expiry' || cond === 'cert_expiry') {
     item.ConditionThresholdDays = parseInt($('fCondThreshold').value) || 14
     item.ConditionKbUrl         = $('fCondKbUrl').value.trim() || null
   } else {
@@ -709,10 +747,29 @@ function linkRow(name, url, i, containerId, pfx) {
   return d
 }
 
+// ---- Registry key targeting toggle ------------------------------------------
+function onRegKeyChange() {
+  const key = $('fTargetRegKey').value.trim()
+  $('regValueBlock').style.display = key ? '' : 'none'
+}
+// Auto-show value fields when key is typed
+document.addEventListener('DOMContentLoaded', () => {
+  const el = $('fTargetRegKey')
+  if (el) el.addEventListener('input', onRegKeyChange)
+})
+
 // ---- Condition toggle --------------------------------------------------------
 function onConditionChange() {
   const cond = $('fCondition').value
   $('conditionBlock').style.display = cond ? '' : 'none'
+  const hint = $('condThresholdHint')
+  if (hint) {
+    if (cond === 'cert_expiry') {
+      hint.textContent = 'Show announcement if any certificate expires within this many days.'
+    } else {
+      hint.textContent = 'Show announcement if password expires within this many days.'
+    }
+  }
 }
 
 // ---- Priority buttons --------------------------------------------------------
