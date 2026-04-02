@@ -1,4 +1,4 @@
-# Endpoint Advisor v7.1.0
+# Endpoint Advisor v7.2.0
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
@@ -119,6 +119,17 @@ Announcements can be targeted to specific device groups. The admin sets a `Targe
 | Announcement has TargetGroup = "ENG" | Only shown to devices where `GROUP = "ENG"` |
 | Device has no GROUP registry key | **Never** sees targeted announcements (only untargeted ones) |
 
+#### Inactive Announcement Visibility
+
+In the admin panel, announcements that are not currently active are greyed out (50% opacity) for easy identification:
+
+| State | Visual |
+|-------|--------|
+| **Disabled** | Greyed out + "Disabled" pill |
+| **Expired** (EndDate in the past) | Greyed out + "Expired" pill |
+| **Scheduled** (StartDate in the future) | Greyed out + "Scheduled" pill |
+| **Active** | Full opacity, no status pill |
+
 #### Conditional Announcements: Password Expiry
 
 Announcements can be conditionally displayed based on the user's password status:
@@ -136,6 +147,45 @@ Announcements can be conditionally displayed based on the user's password status
 4. If password is fine (>14 days) → announcement is hidden
 5. When user changes password → announcement auto-hides on next check
 6. If AD is unreachable → fails safe (announcement hidden)
+
+#### Conditional Announcements: Certificate Expiry
+
+Announcements can be conditionally displayed based on certificate expiration:
+
+| Setting | Description |
+|---------|-------------|
+| Condition | `cert_expiry` |
+| ConditionThresholdDays | Number of days before expiry to start showing (default: 14) |
+| ConditionKbUrl | Optional link to certificate renewal instructions |
+
+**How it works:**
+1. Admin creates an announcement with Condition = `cert_expiry` and threshold = 14 days
+2. Agent checks all certificates in `Cert:\CurrentUser\My` and YubiKey PIV slots (9a, 9c, 9e)
+3. If any certificate expires within threshold → announcement is shown
+4. If all certs are healthy → announcement is hidden
+
+#### Registry Key Targeting
+
+Announcements can be targeted based on registry key existence and value matching. This is useful for targeting specific OS versions, installed software, or configuration states.
+
+| Setting | Description |
+|---------|-------------|
+| TargetRegKey | Registry key path (e.g., `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`) |
+| TargetRegValue | Optional value name to check under the key (e.g., `DisplayVersion`) |
+| TargetRegData | Optional data match — announcement shows only if value data contains this text (e.g., `24H2`) |
+
+**Matching behavior:**
+
+| Configuration | Behavior |
+|---------------|----------|
+| Key only | Show if registry key exists |
+| Key + Value | Show if the value name exists under the key |
+| Key + Value + Data | Show if value data contains the specified text (case-insensitive) |
+
+**Example — Target machines still on Windows 24H2:**
+- Registry Key: `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`
+- Value Name: `DisplayVersion`
+- Value Data Match: `24H2`
 
 ### 2. Application Updates (formerly "BigFix Software Updates")
 
@@ -196,6 +246,7 @@ The agent monitors multiple certificate types from the Windows Certificate Store
 | **Slots checked** | 9a (Authentication), 9c (Digital Signature), 9e (Card Authentication). Slot 9d (Key Management) is excluded. |
 | **Certificate parsing** | Exports PEM to temp file → loads as `X509Certificate2` → reads `NotAfter` date → calculates days remaining |
 | **Color coding** | Green (> 14 days), Amber (≤ 14 days), Red (expired) |
+| **Display format** | Friendly name with subtitle (e.g., "Hardware token authentication") and status: `[OK] VALID`, `[WARNING] EXPIRING SOON`, or `[EXPIRED]` |
 
 #### Smart Card Certificates (Physical, Virtual, YubiKey)
 
@@ -242,7 +293,7 @@ The agent monitors multiple certificate types from the Windows Certificate Store
 | Item | Detail |
 |------|--------|
 | **OS Info** | Windows edition + display version (e.g. "Windows 11 Enterprise Build: 25H2"). Queried via `Get-CimInstance Win32_OperatingSystem` + registry `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion`. |
-| **EA Version** | "Endpoint Advisor v7.1.0" displayed below OS info |
+| **EA Version** | "Endpoint Advisor v7.2.0" displayed below OS info |
 
 ---
 
@@ -314,7 +365,8 @@ Single-file HTML admin interface — no server required. Opens in any browser.
 | Priority | Info (blue), Warning (amber), Critical (red) |
 | Enabled | Toggle on/off without deleting |
 | Target Group | Leave blank for all devices. Enter group name (e.g., "ENG") to target specific devices. |
-| Condition | Optional conditional display (e.g., `password_expiry`) |
+| Registry Key | Optional registry key targeting — only show if key/value/data matches on endpoint |
+| Condition | Optional conditional display (`password_expiry` or `cert_expiry`) |
 | Condition Threshold | Days threshold for conditional announcements (e.g., 14 days for password expiry) |
 | KB Link | Optional knowledge base URL for conditional announcements |
 | Nag until acknowledged | For critical items — re-toasts at a configurable interval |
@@ -363,6 +415,12 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 ---
 
 ## Version History
+
+### v7.2.0 (April 2026)
+- **Inactive announcement visibility** — admin panel greys out disabled, expired, and scheduled announcements with status pills
+- **Certificate expiry condition** — conditional announcements triggered by cert expiry within configurable threshold (checks user store + YubiKey)
+- **Registry key targeting** — target announcements by registry key existence, value name, or value data match (e.g., target 24H2 machines)
+- **Enriched certificate display** — friendly names, subtitles (e.g., "Used for email signing"), and `[OK] VALID` / `[WARNING] EXPIRING SOON` / `[EXPIRED]` status
 
 ### v7.1.0 (March 2026)
 - **Persistent toast notifications** — critical/high priority announcements stay on screen with Dismiss + Snooze buttons
