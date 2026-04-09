@@ -1210,16 +1210,17 @@ $timer.Add_Tick({ Start-ContentRefresh })
 $timer.Start()
 
 # Shared toast flags — synchronized hashtable accessible from runspaces
-$Script:ToastFlags = [hashtable]::Synchronized(@{ RestartCount = 0; PatchCount = 0; Acknowledged = $false })
+$Script:ToastFlags = [hashtable]::Synchronized(@{ RestartCount = 0; PatchCount = 0; Acknowledged = $false; RestartToastVisible = $false })
 $toastTimer = New-Object System.Windows.Forms.Timer
 $toastTimer.Interval = 5000
 $toastTimer.Add_Tick({
     # Don't toast if user has acknowledged (opened dashboard or clicked toast)
     if ($Script:ToastFlags.Acknowledged) { return }
 
-    if ($Script:ToastFlags.RestartCount -gt 0) {
+    if ($Script:ToastFlags.RestartCount -gt 0 -and -not $Script:ToastFlags.RestartToastVisible) {
         $count = $Script:ToastFlags.RestartCount
         $Script:ToastFlags.RestartCount = 0
+        $Script:ToastFlags.RestartToastVisible = $true
         Show-Toast "System Restart Required" "$count update(s) require a restart. Open Software Center to apply and restart." "critical" "update"
     }
     if ($Script:ToastFlags.PatchCount -gt 0) {
@@ -1234,7 +1235,7 @@ $toastTimer.Start()
 $wuPeriodicTimer = New-Object System.Windows.Forms.Timer
 $wuPeriodicTimer.Interval = 4 * 60 * 60 * 1000  # 4 hours in ms
 $wuPeriodicTimer.Add_Tick({
-    # Reset acknowledged flag so toast can fire again
+    # Reset acknowledged flag so toast can fire again only if a new pending state exists
     $Script:ToastFlags.Acknowledged = $false
     # Re-run background WU check
     $tf = $Script:ToastFlags
@@ -1259,7 +1260,11 @@ $wuPeriodicTimer.Add_Tick({
                     }
                     if ($isRestart) { $restartCount++ }
                 }
-                if ($restartCount -gt 0) { $ToastFlags.RestartCount = $restartCount }
+                if ($restartCount -gt 0) {
+                    if (-not $ToastFlags.RestartToastVisible) { $ToastFlags.RestartCount = $restartCount }
+                } else {
+                    $ToastFlags.RestartToastVisible = $false
+                }
             }
         } catch {}
     }).AddArgument($tf)
@@ -1313,7 +1318,11 @@ try {
                             if ($isRestart) { $restartCount++ } else { $patchCount++ }
                         }
                         [System.IO.File]::AppendAllText("C:\temp\toast-debug.log", "$(Get-Date) | Restart: $restartCount Patch: $patchCount`r`n")
-                        if ($restartCount -gt 0) { $ToastFlags.RestartCount = $restartCount }
+                        if ($restartCount -gt 0) {
+                    if (-not $ToastFlags.RestartToastVisible) { $ToastFlags.RestartCount = $restartCount }
+                } else {
+                    $ToastFlags.RestartToastVisible = $false
+                }
                         if ($patchCount -gt 0) {
                             $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
                             $lastToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')
