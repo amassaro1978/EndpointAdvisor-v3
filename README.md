@@ -1,4 +1,4 @@
-# Endpoint Advisor v7.2.0
+# Endpoint Advisor v7.2.1
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
@@ -415,6 +415,10 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 ---
 
 ## Version History
+
+### v7.2.1 (April 2026)
+- **Reboot toast dedupe fix** — persistent restart-required toast now shows only once while reboot state remains pending, instead of stacking duplicate toasts overnight or across repeated background checks
+- **Toast state reset** — reboot toast visibility flag clears automatically once reboot-required updates are no longer detected, so future reboot events still notify correctly
 
 ### v7.2.0 (April 2026)
 - **Inactive announcement visibility** — admin panel greys out disabled, expired, and scheduled announcements with status pills
