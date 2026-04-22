@@ -1,4 +1,4 @@
-# Endpoint Advisor v7.2.1
+# Endpoint Advisor v7.2.2
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
@@ -415,6 +415,9 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 ---
 
 ## Version History
+
+### v7.2.2 (April 2026)
+- **Registry targeting bug fix** — registry key/value targeting now correctly filters announcements in the dashboard panel (`Start-AnnouncementsLoad`). Previously the targeting logic only applied to toast notifications (`Get-RelevantAnnouncements`), causing registry-targeted announcements to appear for all users regardless of targeting criteria.
 
 ### v7.2.1 (April 2026)
 - **Reboot toast dedupe fix** — persistent restart-required toast now shows only once while reboot state remains pending, instead of stacking duplicate toasts overnight or across repeated background checks
