@@ -415,6 +415,27 @@ function Start-AnnouncementsLoad {
                     if ($deviceGroup -ne $item.TargetGroup) { continue }
                 }
 
+                # Registry key targeting — skip if key/value doesn't match on this machine
+                if ($item.TargetRegKey -and $item.TargetRegKey.Trim() -ne "") {
+                    $regMatch = $false
+                    try {
+                        $regPath = $item.TargetRegKey.Trim()
+                        if ($regPath -notmatch '^Registry::') { $regPath = "Registry::$regPath" }
+                        if (Test-Path $regPath) {
+                            if ($item.TargetRegValue -and $item.TargetRegValue.Trim() -ne "") {
+                                $val = Get-ItemProperty -Path $regPath -Name $item.TargetRegValue.Trim() -ErrorAction SilentlyContinue
+                                if ($val) {
+                                    $actualData = $val.($item.TargetRegValue.Trim())
+                                    if ($item.TargetRegData -and $item.TargetRegData.Trim() -ne "") {
+                                        $regMatch = "$actualData" -like "*$($item.TargetRegData.Trim())*"
+                                    } else { $regMatch = $true }
+                                }
+                            } else { $regMatch = $true }
+                        }
+                    } catch {}
+                    if (-not $regMatch) { continue }
+                }
+
                 $items += $item
                 $hasUnread = $true
             }
@@ -472,6 +493,24 @@ function Start-AnnouncementsLoad {
                         $detTb.Margin  = "8,4,0,4"
                         $det.Content   = $detTb
                         $sp.Children.Add($det) | Out-Null
+                    }
+
+                    # KB article link (from ConditionKbUrl field)
+                    $kbUrl = $null
+                    if ($a.PSObject.Properties['ConditionKbUrl'] -and $a.ConditionKbUrl) {
+                        $kbUrl = $a.ConditionKbUrl
+                    }
+                    if ($kbUrl) {
+                        try {
+                            $hl = New-Object System.Windows.Documents.Hyperlink
+                            $hl.NavigateUri = [uri]$kbUrl
+                            $hl.Add_RequestNavigate({ Start-Process $_.Uri.AbsoluteUri })
+                            $hl.Inlines.Add("Knowledge Base Article") | Out-Null
+                            $hlTb = New-Object System.Windows.Controls.TextBlock
+                            $hlTb.Inlines.Add($hl) | Out-Null
+                            $hlTb.Margin = "4,4,0,4"; $hlTb.FontSize = 11
+                            $sp.Children.Add($hlTb) | Out-Null
+                        } catch {}
                     }
 
                     if ($a.Links -and $a.Links.Count -gt 0) {
