@@ -198,6 +198,59 @@ function Get-RelevantAnnouncements($data) {
             if (-not $certExpiringSoon) { continue }
         }
 
+        # Conditional: cert_expiry_email — only show if an email/signing cert expires within threshold
+        if ($item.Condition -eq "cert_expiry_email") {
+            $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+            $certExpiringSoon = $false
+            $emailEkus = @('Secure Email','Email Protection')
+            try {
+                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
+                foreach ($c in $allCerts) {
+                    $ekus = $c.EnhancedKeyUsageList.FriendlyName
+                    $isEmail = $emailEkus | Where-Object { $ekus -contains $_ }
+                    if (-not $isEmail) { continue }
+                    $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
+                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                }
+            } catch {}
+            if (-not $certExpiringSoon) { continue }
+        }
+
+        # Conditional: cert_expiry_auth — only show if a client auth/smart card cert expires within threshold
+        if ($item.Condition -eq "cert_expiry_auth") {
+            $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+            $certExpiringSoon = $false
+            $authEkus = @('Client Authentication','Smart Card Logon')
+            try {
+                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
+                foreach ($c in $allCerts) {
+                    $ekus = $c.EnhancedKeyUsageList.FriendlyName
+                    $isAuth = $authEkus | Where-Object { $ekus -contains $_ }
+                    if (-not $isAuth) { continue }
+                    $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
+                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                }
+            } catch {}
+            # Also check YubiKey PIV auth slot (9a)
+            if (-not $certExpiringSoon) {
+                $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+                if (Test-Path $ykPath) {
+                    try {
+                        $pem = & $ykPath "piv" "certificates" "export" "9a" "-" 2>$null
+                        if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                            $tmp = [System.IO.Path]::GetTempFileName()
+                            ($pem -join "`n") | Out-File $tmp -Encoding ASCII
+                            $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                            Remove-Item $tmp -Force
+                            $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                            if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true }
+                        }
+                    } catch {}
+                }
+            }
+            if (-not $certExpiringSoon) { continue }
+        }
+
         $results.Add($item) | Out-Null
     }
     return $results.ToArray()
@@ -436,12 +489,44 @@ function Start-AnnouncementsLoad {
                     if (-not $regMatch) { continue }
                 }
 
-                # Conditional: cert_expiry — only show if a cert with a private key expires within threshold
+                # Conditional: cert_expiry — any cert with private key expiring within threshold
                 if ($item.Condition -eq "cert_expiry") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
+                            $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
+                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
+                        }
+                    } catch {}
+                    if (-not $firing) { continue }
+                }
+
+                # Conditional: cert_expiry_email — email/signing cert expiring within threshold
+                if ($item.Condition -eq "cert_expiry_email") {
+                    $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+                    $firing = $false
+                    $emailEkus = @('Secure Email','Email Protection')
+                    try {
+                        foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
+                            $ekus = $c.EnhancedKeyUsageList.FriendlyName
+                            if (-not ($emailEkus | Where-Object { $ekus -contains $_ })) { continue }
+                            $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
+                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
+                        }
+                    } catch {}
+                    if (-not $firing) { continue }
+                }
+
+                # Conditional: cert_expiry_auth — client auth/smart card cert expiring within threshold
+                if ($item.Condition -eq "cert_expiry_auth") {
+                    $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+                    $firing = $false
+                    $authEkus = @('Client Authentication','Smart Card Logon')
+                    try {
+                        foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
+                            $ekus = $c.EnhancedKeyUsageList.FriendlyName
+                            if (-not ($authEkus | Where-Object { $ekus -contains $_ })) { continue }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
