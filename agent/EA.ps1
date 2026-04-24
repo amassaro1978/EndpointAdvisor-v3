@@ -628,6 +628,31 @@ function Start-AnnouncementsLoad {
                         $sp.Children.Add($linkPanel) | Out-Null
                     }
 
+                    # Action buttons — launch local utilities (e.g. cert renewal tool)
+                    if ($a.PSObject.Properties['Actions'] -and $a.Actions -and $a.Actions.Count -gt 0) {
+                        $actPanel = New-Object System.Windows.Controls.WrapPanel
+                        $actPanel.Margin = "0,8,0,0"
+                        foreach ($act in $a.Actions) {
+                            if (-not $act.Label -or -not $act.Run) { continue }
+                            $btn = New-Object System.Windows.Controls.Button
+                            $btn.Content    = $act.Label
+                            $btn.FontSize   = 11
+                            $btn.Padding    = "10,4"
+                            $btn.Margin     = "0,0,8,0"
+                            $btn.Cursor     = [System.Windows.Input.Cursors]::Hand
+                            $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#3B82F6')
+                            $btn.Foreground = [System.Windows.Media.Brushes]::White
+                            $btn.BorderThickness = "0"
+                            $runCmd = $act.Run
+                            $runArgs = if ($act.PSObject.Properties['Args'] -and $act.Args) { $act.Args } else { '' }
+                            $btn.Add_Click([scriptblock]::Create("
+                                try { if ('$runArgs') { Start-Process '$runCmd' -ArgumentList '$runArgs' } else { Start-Process '$runCmd' } } catch {}
+                            "))
+                            $actPanel.Children.Add($btn) | Out-Null
+                        }
+                        $sp.Children.Add($actPanel) | Out-Null
+                    }
+
                     $bd.Child = $sp
                     $Container.Children.Add($bd) | Out-Null
                 }
