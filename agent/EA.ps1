@@ -436,6 +436,19 @@ function Start-AnnouncementsLoad {
                     if (-not $regMatch) { continue }
                 }
 
+                # Conditional: cert_expiry — only show if a cert with a private key expires within threshold
+                if ($item.Condition -eq "cert_expiry") {
+                    $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+                    $firing = $false
+                    try {
+                        foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
+                            $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
+                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
+                        }
+                    } catch {}
+                    if (-not $firing) { continue }
+                }
+
                 $items += $item
                 $hasUnread = $true
             }
