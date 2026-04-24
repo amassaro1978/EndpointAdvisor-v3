@@ -279,7 +279,9 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
           <select id="fCondition" onchange="onConditionChange()">
             <option value="">None — always show when active</option>
             <option value="password_expiry">Password Expiry — only show within N days of expiry</option>
-            <option value="cert_expiry">Certificate Expiry — only show within N days of cert expiry</option>
+            <option value="cert_expiry">Certificate Expiry (any) — only show within N days of cert expiry</option>
+            <option value="cert_expiry_email">Certificate Expiry (email/signing) — email certs only</option>
+            <option value="cert_expiry_auth">Certificate Expiry (auth/smart card) — client auth certs only</option>
           </select>
         </div>
         <div id="conditionBlock" class="condition-block" style="display:none;margin-top:0">
@@ -294,6 +296,13 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
               <input id="fCondKbUrl" type="url" placeholder="https://kb.company.com/password-change">
             </div>
           </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="form-group" style="margin-top:10px">
+          <label>Action Buttons <span style="font-size:10px;color:var(--muted);font-weight:400">(launch local utility on click)</span></label>
+          <div id="actionsContainer"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addAction()">+ Add Action Button</button>
         </div>
 
         <!-- Links -->
@@ -580,7 +589,7 @@ function fmtDate(d) { try { return new Date(d).toLocaleDateString() } catch { re
 // ---- Edit announcement -------------------------------------------------------
 function newAnnouncement() {
   const id   = 'ann-' + Date.now()
-  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, TargetGroup:null, Condition:null, ConditionThresholdDays:null, ConditionKbUrl:null, Links:[] }
+  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, TargetGroup:null, Condition:null, ConditionThresholdDays:null, ConditionKbUrl:null, Actions:[], Links:[] }
   state.data.Data.Announcements.Default.push(item)
   renderAll()
   editAnnouncement(id)
@@ -614,6 +623,7 @@ function editAnnouncement(id) {
   onConditionChange()
 
   setPriority(item.Priority || 'info')
+  renderActions(item.Actions || [])
   renderLinks(item.Links || [])
 
   $('editPanel').style.display = ''
@@ -643,13 +653,15 @@ function saveAnnouncement() {
   item.TargetRegData  = $('fTargetRegData').value.trim() || null
   const cond = $('fCondition').value
   item.Condition   = cond || null
-  if (cond === 'password_expiry' || cond === 'cert_expiry') {
+  const certConds = ['password_expiry','cert_expiry','cert_expiry_email','cert_expiry_auth']
+  if (certConds.includes(cond)) {
     item.ConditionThresholdDays = parseInt($('fCondThreshold').value) || 14
     item.ConditionKbUrl         = $('fCondKbUrl').value.trim() || null
   } else {
     item.ConditionThresholdDays = null
     item.ConditionKbUrl         = null
   }
+  item.Actions   = getActions()
   item.Links     = getLinks()
 
   $('editPanel').style.display = 'none'
@@ -711,6 +723,34 @@ function deleteSupport() {
 function cancelSupportEdit() { $('supportEditPanel').style.display='none' }
 
 // ---- Links helpers -----------------------------------------------------------
+// ---- Action buttons --------------------------------------------------------
+function renderActions(actions) {
+  const c = $('actionsContainer'); c.innerHTML = ''
+  actions.forEach(a => c.appendChild(actionRow(a.Label, a.Run, a.Args || '')))
+}
+function addAction() {
+  const actions = getActions(); actions.push({ Label:'', Run:'', Args:'' }); renderActions(actions)
+}
+function getActions() {
+  return Array.from($('actionsContainer').querySelectorAll('.action-row')).map(r => ({
+    Label: r.querySelector('.aLabel').value.trim(),
+    Run:   r.querySelector('.aRun').value.trim(),
+    Args:  r.querySelector('.aArgs').value.trim() || undefined
+  })).filter(a => a.Label && a.Run)
+}
+function actionRow(label, run, args) {
+  const d = document.createElement('div')
+  d.className = 'action-row'
+  d.style = 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap'
+  d.innerHTML = `
+    <input class="aLabel" placeholder="Button label" value="${label||''}" style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
+    <input class="aRun"   placeholder="Command / exe path" value="${run||''}"   style="flex:2;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
+    <input class="aArgs"  placeholder="Arguments (optional)" value="${args||''}"  style="flex:2;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
+    <button onclick="this.closest('.action-row').remove()" style="background:var(--red);border:none;color:#fff;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px">x</button>
+  `
+  return d
+}
+
 function renderLinks(links) {
   const c = $('linksContainer'); c.innerHTML = ''
   links.forEach((l,i) => c.appendChild(linkRow(l.Name, l.Url, i, 'linksContainer', 'ann')))
@@ -764,11 +804,13 @@ function onConditionChange() {
   $('conditionBlock').style.display = cond ? '' : 'none'
   const hint = $('condThresholdHint')
   if (hint) {
-    if (cond === 'cert_expiry') {
-      hint.textContent = 'Show announcement if any certificate expires within this many days.'
-    } else {
-      hint.textContent = 'Show announcement if password expires within this many days.'
+    const hints = {
+      'password_expiry':   'Show if user password expires within this many days.',
+      'cert_expiry':       'Show if any cert with a private key expires within this many days.',
+      'cert_expiry_email': 'Show if an email/signing cert (Secure Email EKU) expires within this many days.',
+      'cert_expiry_auth':  'Show if a client auth or smart card cert expires within this many days.'
     }
+    hint.textContent = hints[cond] || ''
   }
 }
 
