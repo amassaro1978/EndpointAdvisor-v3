@@ -170,7 +170,7 @@ function Get-RelevantAnnouncements($data) {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
             try {
-                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue
+                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
