@@ -173,7 +173,7 @@ function Get-RelevantAnnouncements($data) {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue
                 foreach ($c in $allCerts) {
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                    if ($d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
             # Also check YubiKey certs if ykman is available
@@ -189,7 +189,7 @@ function Get-RelevantAnnouncements($data) {
                                 $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
                                 Remove-Item $tmp -Force
                                 $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                if ($d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                                if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                             }
                         }
                     } catch {}
