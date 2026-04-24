@@ -742,12 +742,23 @@ function actionRow(label, run, args) {
   const d = document.createElement('div')
   d.className = 'action-row'
   d.style = 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap'
-  d.innerHTML = `
-    <input class="aLabel" placeholder="Button label" value="${label||''}" style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
-    <input class="aRun"   placeholder="Command / exe path" value="${run||''}"   style="flex:2;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
-    <input class="aArgs"  placeholder="Arguments (optional)" value="${args||''}"  style="flex:2;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
-    <button onclick="this.closest('.action-row').remove()" style="background:var(--red);border:none;color:#fff;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px">x</button>
-  `
+  const inp = (cls, ph, flex) => {
+    const el = document.createElement('input')
+    el.className = cls; el.placeholder = ph
+    el.style = `flex:${flex};min-width:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px`
+    return el
+  }
+  const lbl = inp('aLabel', 'Button label', '1')
+  const cmd = inp('aRun',   'Command / exe path', '2')
+  const arg = inp('aArgs',  'Arguments (optional)', '2')
+  lbl.value = label || ''
+  cmd.value = run   || ''
+  arg.value = args  || ''
+  const del = document.createElement('button')
+  del.textContent = 'x'
+  del.style = 'background:var(--red);border:none;color:#fff;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px'
+  del.onclick = () => d.remove()
+  d.append(lbl, cmd, arg, del)
   return d
 }
 
