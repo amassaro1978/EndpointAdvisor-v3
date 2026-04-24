@@ -1,4 +1,4 @@
-# Endpoint Advisor v7.2.2
+# Endpoint Advisor v7.3.0
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
@@ -150,19 +150,56 @@ Announcements can be conditionally displayed based on the user's password status
 
 #### Conditional Announcements: Certificate Expiry
 
-Announcements can be conditionally displayed based on certificate expiration:
+Three cert-specific conditions allow targeting by cert type, so you can show different announcements (with different KB links and action buttons) depending on what kind of cert is expiring:
+
+| Condition | Triggers when... |
+|-----------|------------------|
+| `cert_expiry` | Any cert with a private key in `Cert:\CurrentUser\My` expires within threshold |
+| `cert_expiry_email` | An email/signing cert (EKU: Secure Email or Email Protection) expires within threshold |
+| `cert_expiry_auth` | A client auth or smart card cert (EKU: Client Authentication or Smart Card Logon) expires within threshold. Also checks YubiKey slot 9a. |
 
 | Setting | Description |
 |---------|-------------|
-| Condition | `cert_expiry` |
 | ConditionThresholdDays | Number of days before expiry to start showing (default: 14) |
 | ConditionKbUrl | Optional link to certificate renewal instructions |
 
 **How it works:**
-1. Admin creates an announcement with Condition = `cert_expiry` and threshold = 14 days
-2. Agent checks all certificates in `Cert:\CurrentUser\My` and YubiKey PIV slots (9a, 9c, 9e)
-3. If any certificate expires within threshold → announcement is shown
-4. If all certs are healthy → announcement is hidden
+1. Admin creates separate announcements for `cert_expiry_email` and `cert_expiry_auth`, each pointing to the appropriate KB article and action button
+2. Agent evaluates EKU of certs with private keys in `Cert:\CurrentUser\My`
+3. Only certs actively expiring within the threshold (not already expired) trigger the condition
+4. If no matching cert is expiring → announcement is hidden
+
+#### Announcement Action Buttons
+
+Announcements can include buttons that launch local utilities directly from the dashboard card — ideal for cert renewal tools, self-service portals, or any endpoint utility.
+
+| Field | Description |
+|-------|-------------|
+| `Label` | Button text shown in the card |
+| `Run` | Executable or script path (passed to `Start-Process`) |
+| `Args` | Optional arguments (passed as `ArgumentList`) |
+
+**Example ContentData.json entry:**
+```json
+{
+  "id": "cert-email-expiry-001",
+  "Condition": "cert_expiry_email",
+  "ConditionThresholdDays": 30,
+  "Priority": "warning",
+  "Title": "Email Certificate Expiring Soon",
+  "Text": "Your email signing certificate expires within 30 days.",
+  "ConditionKbUrl": "https://kb.yourorg.com/email-cert-renewal",
+  "Actions": [
+    {
+      "Label": "Renew Email Certificate",
+      "Run": "powershell.exe",
+      "Args": "-ExecutionPolicy Bypass -File C:\\ProgramData\\CertTools\\Renew-EmailCert.ps1"
+    }
+  ]
+}
+```
+
+Action buttons are managed via the admin panel — no manual JSON editing required.
 
 #### Registry Key Targeting
 
@@ -293,7 +330,7 @@ The agent monitors multiple certificate types from the Windows Certificate Store
 | Item | Detail |
 |------|--------|
 | **OS Info** | Windows edition + display version (e.g. "Windows 11 Enterprise Build: 25H2"). Queried via `Get-CimInstance Win32_OperatingSystem` + registry `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion`. |
-| **EA Version** | "Endpoint Advisor v7.2.0" displayed below OS info |
+| **EA Version** | "Endpoint Advisor v7.3.0" displayed below OS info |
 
 ---
 
@@ -366,12 +403,13 @@ Single-file HTML admin interface — no server required. Opens in any browser.
 | Enabled | Toggle on/off without deleting |
 | Target Group | Leave blank for all devices. Enter group name (e.g., "ENG") to target specific devices. |
 | Registry Key | Optional registry key targeting — only show if key/value/data matches on endpoint |
-| Condition | Optional conditional display (`password_expiry` or `cert_expiry`) |
-| Condition Threshold | Days threshold for conditional announcements (e.g., 14 days for password expiry) |
+| Condition | Optional conditional display (`password_expiry`, `cert_expiry`, `cert_expiry_email`, `cert_expiry_auth`) |
+| Condition Threshold | Days threshold for conditional announcements (e.g., 30 days for cert expiry) |
 | KB Link | Optional knowledge base URL for conditional announcements |
 | Nag until acknowledged | For critical items — re-toasts at a configurable interval |
 | Nag interval | Minutes between re-notifications (default: 30) |
-| Links | Optional action buttons with URLs |
+| Action Buttons | Launch local utilities directly from the announcement card (e.g., cert renewal tool) |
+| Links | Optional web links with labels |
 | Start/End Date | Schedule when the announcement appears and expires |
 
 ---
@@ -415,6 +453,14 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 ---
 
 ## Version History
+
+### v7.3.0 (April 2026)
+- **Targeted cert expiry conditions** — two new conditions: `cert_expiry_email` (email/signing certs by EKU) and `cert_expiry_auth` (client auth/smart card certs by EKU + YubiKey slot 9a). Enables separate announcements with separate KB links for each cert type.
+- **Announcement action buttons** — announcements can now include buttons that launch local utilities (e.g., cert renewal tools) directly from the dashboard card. Configured via `Actions[]` array with `Label`, `Run`, and optional `Args` fields.
+- **Admin panel updates** — new condition options (`cert_expiry_email`, `cert_expiry_auth`) in dropdown with contextual hint text; new Action Buttons editor section for adding/removing/editing launch actions.
+- **Cert expiry condition fix** — condition was missing from `Start-AnnouncementsLoad` (dashboard runspace), causing cert expiry announcements to always display regardless of cert state. Fixed in both toast and dashboard pipelines.
+- **False positive fix** — already-expired certs (negative days) were triggering the cert expiry condition. Condition now requires `$d -ge 0` to only alert on actively expiring certs.
+- **Private key filter** — cert checks now filter to `HasPrivateKey = true` only, preventing CA/intermediate/system certs from triggering false alerts.
 
 ### v7.2.2 (April 2026)
 - **Registry targeting bug fix** — registry key/value targeting now correctly filters announcements in the dashboard panel (`Start-AnnouncementsLoad`). Previously the targeting logic only applied to toast notifications (`Get-RelevantAnnouncements`), causing registry-targeted announcements to appear for all users regardless of targeting criteria.
