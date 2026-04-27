@@ -203,18 +203,19 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Condition -eq "cert_expiry_auth") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            # Match by OID (locale-proof) + FriendlyName fallback
-            # Certs with empty EKU list are treated as auth-eligible (common for PIV/YubiKey via minidriver)
-            $authOids     = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
-            $authEkuNames = @('Client Authentication','Smart Card Logon')
+            # Exclude email-only certs; everything else (auth EKU, empty EKU, PIV/YubiKey) counts as auth
+            $emailOnlyOids  = @('1.3.6.1.5.5.7.3.4')
+            $emailOnlyNames = @('Secure Email','Email Protection')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
-                    $oids  = $c.EnhancedKeyUsageList.ObjectId
-                    $names = $c.EnhancedKeyUsageList.FriendlyName
-                    $noEku = ($oids.Count -eq 0 -and $names.Count -eq 0)
-                    $isAuth = $noEku -or ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
-                    if (-not $isAuth) { continue }
+                    $oids  = @($c.EnhancedKeyUsageList.ObjectId)
+                    $names = @($c.EnhancedKeyUsageList.FriendlyName)
+                    # Skip if cert has EKUs and ALL of them are email-only
+                    if ($oids.Count -gt 0) {
+                        $nonEmail = $oids | Where-Object { $emailOnlyOids -notcontains $_ }
+                        if (-not $nonEmail) { continue }
+                    }
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
@@ -496,17 +497,15 @@ function Start-AnnouncementsLoad {
                 if ($item.Condition -eq "cert_expiry_auth") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    # Match by OID (locale-proof) + FriendlyName fallback
-                    # Certs with empty EKU list are treated as auth-eligible (common for PIV/YubiKey via minidriver)
-                    $authOids     = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
-                    $authEkuNames = @('Client Authentication','Smart Card Logon')
+                    # Exclude email-only certs; everything else (auth EKU, empty EKU, PIV/YubiKey) counts as auth
+                    $emailOnlyOids = @('1.3.6.1.5.5.7.3.4')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $oids  = $c.EnhancedKeyUsageList.ObjectId
-                            $names = $c.EnhancedKeyUsageList.FriendlyName
-                            $noEku = ($oids.Count -eq 0 -and $names.Count -eq 0)
-                            $isAuth = $noEku -or ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
-                            if (-not $isAuth) { continue }
+                            $oids = @($c.EnhancedKeyUsageList.ObjectId)
+                            if ($oids.Count -gt 0) {
+                                $nonEmail = $oids | Where-Object { $emailOnlyOids -notcontains $_ }
+                                if (-not $nonEmail) { continue }
+                            }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
