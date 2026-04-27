@@ -107,7 +107,9 @@ function Get-RelevantAnnouncements($data) {
 
         # Group targeting — skip if announcement targets a specific group and we're not in it
         if ($item.TargetGroup -and $item.TargetGroup.Trim() -ne "" -and $item.TargetGroup -ne "All") {
-            if ($Script:DeviceGroup -ne $item.TargetGroup) { continue }
+            $tg = $item.TargetGroup.Trim()
+            $groupMatch = if ($item.TargetGroupContains) { $Script:DeviceGroup -like "*$tg*" } else { $Script:DeviceGroup -eq $tg }
+            if (-not $groupMatch) { continue }
         }
 
         # Registry key targeting — skip if key/value doesn't match on this machine
@@ -412,7 +414,9 @@ function Start-AnnouncementsLoad {
 
                 # Group targeting — skip if announcement targets a specific group and we're not in it
                 if ($item.TargetGroup -and $item.TargetGroup.Trim() -ne "" -and $item.TargetGroup -ne "All") {
-                    if ($deviceGroup -ne $item.TargetGroup) { continue }
+                    $tg = $item.TargetGroup.Trim()
+                    $groupMatch = if ($item.TargetGroupContains) { $deviceGroup -like "*$tg*" } else { $deviceGroup -eq $tg }
+                    if (-not $groupMatch) { continue }
                 }
 
                 # Registry key targeting — skip if key/value doesn't match on this machine

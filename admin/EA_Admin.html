@@ -249,6 +249,10 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
         <div class="form-group" style="margin-top:12px">
           <label>Target Group (optional)</label>
           <input id="fTargetGroup" placeholder="Leave blank for all devices. E.g. FINANCE, HR, REMOTE">
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <input type="checkbox" id="fTargetGroupContains" style="width:auto;margin:0">
+            <label for="fTargetGroupContains" style="font-size:11px;color:var(--muted);margin:0">Contains match (e.g. "IT" matches "REMOTE IT")</label>
+          </div>
           <span style="font-size:10px;color:var(--muted)">Agent reads HKLM\SOFTWARE\CompanyName\targeting\GROUP. Leave blank to target all.</span>
         </div>
 
@@ -589,7 +593,7 @@ function fmtDate(d) { try { return new Date(d).toLocaleDateString() } catch { re
 // ---- Edit announcement -------------------------------------------------------
 function newAnnouncement() {
   const id   = 'ann-' + Date.now()
-  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, TargetGroup:null, Condition:null, ConditionThresholdDays:null, ConditionKbUrl:null, Actions:[], Links:[] }
+  const item = { id, Enabled:true, Priority:'info', Title:'', Text:'', Details:'', StartDate:null, EndDate:null, NagEnabled:false, NagIntervalMinutes:30, TargetGroup:null, TargetGroupContains:false, Condition:null, ConditionThresholdDays:null, ConditionKbUrl:null, Actions:[], Links:[] }
   state.data.Data.Announcements.Default.push(item)
   renderAll()
   editAnnouncement(id)
@@ -613,6 +617,7 @@ function editAnnouncement(id) {
   $('fStartDate').value   = item.StartDate ? toLocalDT(item.StartDate) : ''
   $('fEndDate').value     = item.EndDate   ? toLocalDT(item.EndDate)   : ''
   $('fTargetGroup').value  = item.TargetGroup || ''
+  $('fTargetGroupContains').checked = item.TargetGroupContains || false
   $('fTargetRegKey').value  = item.TargetRegKey || ''
   $('fTargetRegValue').value = item.TargetRegValue || ''
   $('fTargetRegData').value  = item.TargetRegData || ''
@@ -647,7 +652,8 @@ function saveAnnouncement() {
   item.NagIntervalMinutes = parseInt($('fNagInterval').value) || 30
   item.StartDate   = $('fStartDate').value ? new Date($('fStartDate').value).toISOString() : null
   item.EndDate     = $('fEndDate').value   ? new Date($('fEndDate').value).toISOString()   : null
-  item.TargetGroup    = $('fTargetGroup').value.trim() || null
+  item.TargetGroup          = $('fTargetGroup').value.trim() || null
+  item.TargetGroupContains   = $('fTargetGroupContains').checked || false
   item.TargetRegKey   = $('fTargetRegKey').value.trim() || null
   item.TargetRegValue = $('fTargetRegValue').value.trim() || null
   item.TargetRegData  = $('fTargetRegData').value.trim() || null
