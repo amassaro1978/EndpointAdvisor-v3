@@ -176,28 +176,6 @@ function Get-RelevantAnnouncements($data) {
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
-            # YubiKey fallback — check all PIV slots (same path as dashboard cert display)
-            if (-not $certExpiringSoon) {
-                $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
-                if (Test-Path $ykPath) {
-                    try {
-                        $ykInfo = & $ykPath info 2>$null
-                        if ($ykInfo) {
-                            foreach ($slot in @("9a", "9c", "9e")) {
-                                $pem = & $ykPath "piv" "certificates" "export" $slot "-" 2>$null
-                                if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                    $tmp = [System.IO.Path]::GetTempFileName()
-                                    ($pem -join "`n") | Out-File $tmp -Encoding ASCII
-                                    $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                    Remove-Item $tmp -Force
-                                    $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
-                                }
-                            }
-                        }
-                    } catch {}
-                }
-            }
             if (-not $certExpiringSoon) { continue }
         }
 
@@ -205,7 +183,7 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Condition -eq "cert_expiry_email") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            $emailOids  = @('1.3.6.1.5.5.7.3.4')
+            $emailOids     = @('1.3.6.1.5.5.7.3.4')
             $emailEkuNames = @('Secure Email','Email Protection')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
@@ -218,26 +196,6 @@ function Get-RelevantAnnouncements($data) {
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
-            # YubiKey PIV slot 9c fallback (digital signature/email slot)
-            if (-not $certExpiringSoon) {
-                $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
-                if (Test-Path $ykPath) {
-                    try {
-                        $ykInfo = & $ykPath info 2>$null
-                        if ($ykInfo) {
-                            $pem = & $ykPath "piv" "certificates" "export" "9c" "-" 2>$null
-                            if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                $tmp = [System.IO.Path]::GetTempFileName()
-                                ($pem -join "`n") | Out-File $tmp -Encoding ASCII
-                                $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                Remove-Item $tmp -Force
-                                $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true }
-                            }
-                        }
-                    } catch {}
-                }
-            }
             if (-not $certExpiringSoon) { continue }
         }
 
@@ -246,39 +204,21 @@ function Get-RelevantAnnouncements($data) {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
             # Match by OID (locale-proof) + FriendlyName fallback
-            $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
+            # Certs with empty EKU list are treated as auth-eligible (common for PIV/YubiKey via minidriver)
+            $authOids     = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
             $authEkuNames = @('Client Authentication','Smart Card Logon')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
                     $oids  = $c.EnhancedKeyUsageList.ObjectId
                     $names = $c.EnhancedKeyUsageList.FriendlyName
-                    $isAuth = ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
+                    $noEku = ($oids.Count -eq 0 -and $names.Count -eq 0)
+                    $isAuth = $noEku -or ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
                     if (-not $isAuth) { continue }
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
-            # YubiKey PIV auth slot 9a fallback (same path as dashboard cert display)
-            if (-not $certExpiringSoon) {
-                $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
-                if (Test-Path $ykPath) {
-                    try {
-                        $ykInfo = & $ykPath info 2>$null
-                        if ($ykInfo) {
-                            $pem = & $ykPath "piv" "certificates" "export" "9a" "-" 2>$null
-                            if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                $tmp = [System.IO.Path]::GetTempFileName()
-                                ($pem -join "`n") | Out-File $tmp -Encoding ASCII
-                                $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                Remove-Item $tmp -Force
-                                $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true }
-                            }
-                        }
-                    } catch {}
-                }
-            }
             if (-not $certExpiringSoon) { continue }
         }
 
@@ -530,28 +470,6 @@ function Start-AnnouncementsLoad {
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
                     } catch {}
-                    # YubiKey fallback — all PIV slots
-                    if (-not $firing) {
-                        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
-                        if (Test-Path $ykmanPath) {
-                            try {
-                                $ykInfo = & $ykmanPath info 2>$null
-                                if ($ykInfo) {
-                                    foreach ($slot in @("9a", "9c", "9e")) {
-                                        $certPem = & $ykmanPath "piv" "certificates" "export" $slot "-" 2>$null
-                                        if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                            $tmp = [System.IO.Path]::GetTempFileName()
-                                            ($certPem -join "`n") | Out-File $tmp -Encoding ASCII
-                                            $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                            Remove-Item $tmp -Force
-                                            $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
-                                        }
-                                    }
-                                }
-                            } catch {}
-                        }
-                    }
                     if (-not $firing) { continue }
                 }
 
@@ -559,7 +477,7 @@ function Start-AnnouncementsLoad {
                 if ($item.Condition -eq "cert_expiry_email") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    $emailOids  = @('1.3.6.1.5.5.7.3.4')
+                    $emailOids     = @('1.3.6.1.5.5.7.3.4')
                     $emailEkuNames = @('Secure Email','Email Protection')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
@@ -571,26 +489,6 @@ function Start-AnnouncementsLoad {
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
                     } catch {}
-                    # YubiKey PIV slot 9c fallback (digital signature/email slot)
-                    if (-not $firing) {
-                        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
-                        if (Test-Path $ykmanPath) {
-                            try {
-                                $ykInfo = & $ykmanPath info 2>$null
-                                if ($ykInfo) {
-                                    $certPem = & $ykmanPath "piv" "certificates" "export" "9c" "-" 2>$null
-                                    if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                        $tmp = [System.IO.Path]::GetTempFileName()
-                                        ($certPem -join "`n") | Out-File $tmp -Encoding ASCII
-                                        $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                        Remove-Item $tmp -Force
-                                        $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                        if ($d -ge 0 -and $d -le $thresh) { $firing = $true }
-                                    }
-                                }
-                            } catch {}
-                        }
-                    }
                     if (-not $firing) { continue }
                 }
 
@@ -599,38 +497,20 @@ function Start-AnnouncementsLoad {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
                     # Match by OID (locale-proof) + FriendlyName fallback
-                    $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
+                    # Certs with empty EKU list are treated as auth-eligible (common for PIV/YubiKey via minidriver)
+                    $authOids     = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
                     $authEkuNames = @('Client Authentication','Smart Card Logon')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
                             $oids  = $c.EnhancedKeyUsageList.ObjectId
                             $names = $c.EnhancedKeyUsageList.FriendlyName
-                            $isAuth = ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
+                            $noEku = ($oids.Count -eq 0 -and $names.Count -eq 0)
+                            $isAuth = $noEku -or ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
                             if (-not $isAuth) { continue }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
                     } catch {}
-                    # YubiKey PIV slot 9a fallback (same path the dashboard cert display uses)
-                    if (-not $firing) {
-                        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
-                        if (Test-Path $ykmanPath) {
-                            try {
-                                $ykInfo = & $ykmanPath info 2>$null
-                                if ($ykInfo) {
-                                    $certPem = & $ykmanPath "piv" "certificates" "export" "9a" "-" 2>$null
-                                    if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                        $tmp = [System.IO.Path]::GetTempFileName()
-                                        ($certPem -join "`n") | Out-File $tmp -Encoding ASCII
-                                        $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                        Remove-Item $tmp -Force
-                                        $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                        if ($d -ge 0 -and $d -le $thresh) { $firing = $true }
-                                    }
-                                }
-                            } catch {}
-                        }
-                    }
                     if (-not $firing) { continue }
                 }
 
