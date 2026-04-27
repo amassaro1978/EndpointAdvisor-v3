@@ -116,7 +116,8 @@ Announcements can be targeted to specific device groups. The admin sets a `Targe
 |----------|----------|
 | Announcement has no TargetGroup | Shown to **all** devices |
 | Announcement has TargetGroup = "All" | Shown to **all** devices |
-| Announcement has TargetGroup = "ENG" | Only shown to devices where `GROUP = "ENG"` |
+| Announcement has TargetGroup = "ENG" | Only shown to devices where `GROUP = "ENG"` (exact match) |
+| Announcement has TargetGroup = "IT" + Contains match enabled | Shown to devices where GROUP **contains** "IT" (e.g., "REMOTE IT", "IT HELPDESK") |
 | Device has no GROUP registry key | **Never** sees targeted announcements (only untargeted ones) |
 
 #### Inactive Announcement Visibility
@@ -165,9 +166,12 @@ Three cert-specific conditions allow targeting by cert type, so you can show dif
 
 **How it works:**
 1. Admin creates separate announcements for `cert_expiry_email` and `cert_expiry_auth`, each pointing to the appropriate KB article and action button
-2. Agent evaluates EKU of certs with private keys in `Cert:\CurrentUser\My`
-3. Only certs actively expiring within the threshold (not already expired) trigger the condition
-4. If no matching cert is expiring → announcement is hidden
+2. `Start-AccountLoad` (the cert monitoring runspace) writes detected cert data to `%TEMP%\ea_monitored_certs.json` after the dashboard loads — one entry per cert with `type` (auth/email) and `days` remaining
+3. Announcement conditions read exclusively from this file — they see only the certs the dashboard actually monitors, nothing more
+4. Only certs actively expiring within the threshold (not already expired, `$d -ge 0`) trigger the condition
+5. If no matching cert is expiring → announcement is hidden
+
+> **Note:** On first launch, cert announcements may not evaluate until `Start-AccountLoad` has finished writing the temp file. Subsequent refreshes are always in sync.
 
 #### Announcement Action Buttons
 
@@ -401,7 +405,7 @@ Single-file HTML admin interface — no server required. Opens in any browser.
 | Message | Body text (supports newlines) |
 | Priority | Info (blue), Warning (amber), Critical (red) |
 | Enabled | Toggle on/off without deleting |
-| Target Group | Leave blank for all devices. Enter group name (e.g., "ENG") to target specific devices. |
+| Target Group | Leave blank for all devices. Enter group name (e.g., "ENG") to target specific devices. Enable **Contains match** to match partial group names (e.g., "IT" matches "REMOTE IT"). |
 | Registry Key | Optional registry key targeting — only show if key/value/data matches on endpoint |
 | Condition | Optional conditional display (`password_expiry`, `cert_expiry`, `cert_expiry_email`, `cert_expiry_auth`) |
 | Condition Threshold | Days threshold for conditional announcements (e.g., 30 days for cert expiry) |
@@ -458,6 +462,9 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 - **Targeted cert expiry conditions** — two new conditions: `cert_expiry_email` (email/signing certs by EKU) and `cert_expiry_auth` (client auth/smart card certs by EKU + YubiKey slot 9a). Enables separate announcements with separate KB links for each cert type.
 - **Announcement action buttons** — announcements can now include buttons that launch local utilities (e.g., cert renewal tools) directly from the dashboard card. Configured via `Actions[]` array with `Label`, `Run`, and optional `Args` fields.
 - **Admin panel updates** — new condition options (`cert_expiry_email`, `cert_expiry_auth`) in dropdown with contextual hint text; new Action Buttons editor section for adding/removing/editing launch actions.
+- **Cert condition scoped to dashboard** — all cert expiry conditions (`cert_expiry`, `cert_expiry_email`, `cert_expiry_auth`) now read exclusively from `%TEMP%\ea_monitored_certs.json`, written by `Start-AccountLoad` after the dashboard cert display runs. Conditions see exactly the same certs the dashboard monitors — code signing, CA, and other non-monitored certs can no longer trigger false positives.
+- **`password_expiry` condition fix** — condition was missing from `Start-AnnouncementsLoad` (dashboard runspace), causing password expiry announcements to display unconditionally in the dashboard regardless of threshold. Now evaluated correctly in both toast and dashboard pipelines.
+- **Group targeting: contains match** — new `TargetGroupContains` flag (checkbox in admin panel) switches group matching from exact to wildcard contains (e.g., "IT" matches "REMOTE IT"). Default is exact match — no change to existing configs.
 - **Cert expiry condition fix** — condition was missing from `Start-AnnouncementsLoad` (dashboard runspace), causing cert expiry announcements to always display regardless of cert state. Fixed in both toast and dashboard pipelines.
 - **False positive fix** — already-expired certs (negative days) were triggering the cert expiry condition. Condition now requires `$d -ge 0` to only alert on actively expiring certs.
 - **Private key filter** — cert checks now filter to `HasPrivateKey = true` only, preventing CA/intermediate/system certs from triggering false alerts.
