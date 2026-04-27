@@ -436,6 +436,27 @@ function Start-AnnouncementsLoad {
                     if (-not $regMatch) { continue }
                 }
 
+                # Conditional: password_expiry — only show if user password expires within threshold
+                if ($item.Condition -eq "password_expiry") {
+                    $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
+                    $pwDaysLeft = $null
+                    try {
+                        $s = [adsisearcher]"(samaccountname=$env:USERNAME)"
+                        $s.PropertiesToLoad.Add("msDS-UserPasswordExpiryTimeComputed") | Out-Null
+                        $r = $s.FindOne()
+                        if ($r) {
+                            $ep = $r.Properties["msds-userpasswordexpirytimecomputed"]
+                            if ($ep.Count -gt 0) {
+                                $ft = $ep[0]
+                                if ($ft -gt 0 -and $ft -ne [Int64]::MaxValue) {
+                                    $pwDaysLeft = [math]::Ceiling(([datetime]::FromFileTime($ft) - [datetime]::Now).TotalDays)
+                                }
+                            }
+                        }
+                    } catch {}
+                    if ($null -eq $pwDaysLeft -or $pwDaysLeft -gt $thresh) { continue }
+                }
+
                 # Conditional: cert_expiry — any dashboard-monitored cert expiring within threshold
                 if ($item.Condition -eq "cert_expiry") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
