@@ -183,16 +183,15 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Condition -eq "cert_expiry_email") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            # Exclude auth-only certs; everything else (email EKU, empty EKU, mixed) counts as email-eligible
-            $authOnlyOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
+            $emailOids     = @('1.3.6.1.5.5.7.3.4')
+            $emailEkuNames = @('Secure Email','Email Protection')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
-                    $oids = @($c.EnhancedKeyUsageList.ObjectId)
-                    if ($oids.Count -gt 0) {
-                        $nonAuth = $oids | Where-Object { $authOnlyOids -notcontains $_ }
-                        if (-not $nonAuth) { continue }
-                    }
+                    $oids  = $c.EnhancedKeyUsageList.ObjectId
+                    $names = $c.EnhancedKeyUsageList.FriendlyName
+                    $isEmail = ($emailOids | Where-Object { $oids -contains $_ }) -or ($emailEkuNames | Where-Object { $names -contains $_ })
+                    if (-not $isEmail) { continue }
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
@@ -479,15 +478,14 @@ function Start-AnnouncementsLoad {
                 if ($item.Condition -eq "cert_expiry_email") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    # Exclude auth-only certs; everything else (email EKU, empty EKU, mixed) counts as email-eligible
-                    $authOnlyOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
+                    $emailOids     = @('1.3.6.1.5.5.7.3.4')
+                    $emailEkuNames = @('Secure Email','Email Protection')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $oids = @($c.EnhancedKeyUsageList.ObjectId)
-                            if ($oids.Count -gt 0) {
-                                $nonAuth = $oids | Where-Object { $authOnlyOids -notcontains $_ }
-                                if (-not $nonAuth) { continue }
-                            }
+                            $oids  = $c.EnhancedKeyUsageList.ObjectId
+                            $names = $c.EnhancedKeyUsageList.FriendlyName
+                            $isEmail = ($emailOids | Where-Object { $oids -contains $_ }) -or ($emailEkuNames | Where-Object { $names -contains $_ })
+                            if (-not $isEmail) { continue }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
