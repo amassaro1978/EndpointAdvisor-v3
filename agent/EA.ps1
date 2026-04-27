@@ -220,12 +220,15 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Condition -eq "cert_expiry_auth") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            $authEkus = @('Client Authentication','Smart Card Logon')
+            # Match by OID (locale-proof) + FriendlyName fallback
+            $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
+            $authEkuNames = @('Client Authentication','Smart Card Logon')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
-                    $ekus = $c.EnhancedKeyUsageList.FriendlyName
-                    $isAuth = $authEkus | Where-Object { $ekus -contains $_ }
+                    $oids  = $c.EnhancedKeyUsageList.ObjectId
+                    $names = $c.EnhancedKeyUsageList.FriendlyName
+                    $isAuth = ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
                     if (-not $isAuth) { continue }
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
@@ -522,11 +525,15 @@ function Start-AnnouncementsLoad {
                 if ($item.Condition -eq "cert_expiry_auth") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    $authEkus = @('Client Authentication','Smart Card Logon')
+                    # Match by OID (locale-proof) + FriendlyName fallback
+                    $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
+                    $authEkuNames = @('Client Authentication','Smart Card Logon')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $ekus = $c.EnhancedKeyUsageList.FriendlyName
-                            if (-not ($authEkus | Where-Object { $ekus -contains $_ })) { continue }
+                            $oids  = $c.EnhancedKeyUsageList.ObjectId
+                            $names = $c.EnhancedKeyUsageList.FriendlyName
+                            $isAuth = ($authOids | Where-Object { $oids -contains $_ }) -or ($authEkuNames | Where-Object { $names -contains $_ })
+                            if (-not $isAuth) { continue }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
