@@ -176,20 +176,23 @@ function Get-RelevantAnnouncements($data) {
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
-            # Also check YubiKey certs if ykman is available
+            # YubiKey fallback — check all PIV slots (same path as dashboard cert display)
             if (-not $certExpiringSoon) {
                 $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
                 if (Test-Path $ykPath) {
                     try {
-                        foreach ($slot in @("9a", "9c", "9e")) {
-                            $pem = & $ykPath "piv" "certificates" "export" $slot "-" 2>$null
-                            if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                                $tmp = [System.IO.Path]::GetTempFileName()
-                                ($pem -join "`n") | Out-File $tmp -Encoding ASCII
-                                $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                                Remove-Item $tmp -Force
-                                $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                                if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                        $ykInfo = & $ykPath info 2>$null
+                        if ($ykInfo) {
+                            foreach ($slot in @("9a", "9c", "9e")) {
+                                $pem = & $ykPath "piv" "certificates" "export" $slot "-" 2>$null
+                                if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                    $tmp = [System.IO.Path]::GetTempFileName()
+                                    ($pem -join "`n") | Out-File $tmp -Encoding ASCII
+                                    $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                    Remove-Item $tmp -Force
+                                    $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
+                                }
                             }
                         }
                     } catch {}
@@ -202,17 +205,39 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Condition -eq "cert_expiry_email") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            $emailEkus = @('Secure Email','Email Protection')
+            $emailOids  = @('1.3.6.1.5.5.7.3.4')
+            $emailEkuNames = @('Secure Email','Email Protection')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
-                    $ekus = $c.EnhancedKeyUsageList.FriendlyName
-                    $isEmail = $emailEkus | Where-Object { $ekus -contains $_ }
+                    $oids  = $c.EnhancedKeyUsageList.ObjectId
+                    $names = $c.EnhancedKeyUsageList.FriendlyName
+                    $isEmail = ($emailOids | Where-Object { $oids -contains $_ }) -or ($emailEkuNames | Where-Object { $names -contains $_ })
                     if (-not $isEmail) { continue }
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
+            # YubiKey PIV slot 9c fallback (digital signature/email slot)
+            if (-not $certExpiringSoon) {
+                $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+                if (Test-Path $ykPath) {
+                    try {
+                        $ykInfo = & $ykPath info 2>$null
+                        if ($ykInfo) {
+                            $pem = & $ykPath "piv" "certificates" "export" "9c" "-" 2>$null
+                            if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                $tmp = [System.IO.Path]::GetTempFileName()
+                                ($pem -join "`n") | Out-File $tmp -Encoding ASCII
+                                $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                Remove-Item $tmp -Force
+                                $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true }
+                            }
+                        }
+                    } catch {}
+                }
+            }
             if (-not $certExpiringSoon) { continue }
         }
 
@@ -234,19 +259,22 @@ function Get-RelevantAnnouncements($data) {
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
             } catch {}
-            # Also check YubiKey PIV auth slot (9a)
+            # YubiKey PIV auth slot 9a fallback (same path as dashboard cert display)
             if (-not $certExpiringSoon) {
                 $ykPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
                 if (Test-Path $ykPath) {
                     try {
-                        $pem = & $ykPath "piv" "certificates" "export" "9a" "-" 2>$null
-                        if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
-                            $tmp = [System.IO.Path]::GetTempFileName()
-                            ($pem -join "`n") | Out-File $tmp -Encoding ASCII
-                            $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
-                            Remove-Item $tmp -Force
-                            $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
-                            if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true }
+                        $ykInfo = & $ykPath info 2>$null
+                        if ($ykInfo) {
+                            $pem = & $ykPath "piv" "certificates" "export" "9a" "-" 2>$null
+                            if ($pem -and ($pem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                $tmp = [System.IO.Path]::GetTempFileName()
+                                ($pem -join "`n") | Out-File $tmp -Encoding ASCII
+                                $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                Remove-Item $tmp -Force
+                                $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true }
+                            }
                         }
                     } catch {}
                 }
@@ -502,6 +530,28 @@ function Start-AnnouncementsLoad {
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
                     } catch {}
+                    # YubiKey fallback — all PIV slots
+                    if (-not $firing) {
+                        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+                        if (Test-Path $ykmanPath) {
+                            try {
+                                $ykInfo = & $ykmanPath info 2>$null
+                                if ($ykInfo) {
+                                    foreach ($slot in @("9a", "9c", "9e")) {
+                                        $certPem = & $ykmanPath "piv" "certificates" "export" $slot "-" 2>$null
+                                        if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                            $tmp = [System.IO.Path]::GetTempFileName()
+                                            ($certPem -join "`n") | Out-File $tmp -Encoding ASCII
+                                            $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                            Remove-Item $tmp -Force
+                                            $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
+                                        }
+                                    }
+                                }
+                            } catch {}
+                        }
+                    }
                     if (-not $firing) { continue }
                 }
 
@@ -509,15 +559,38 @@ function Start-AnnouncementsLoad {
                 if ($item.Condition -eq "cert_expiry_email") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    $emailEkus = @('Secure Email','Email Protection')
+                    $emailOids  = @('1.3.6.1.5.5.7.3.4')
+                    $emailEkuNames = @('Secure Email','Email Protection')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $ekus = $c.EnhancedKeyUsageList.FriendlyName
-                            if (-not ($emailEkus | Where-Object { $ekus -contains $_ })) { continue }
+                            $oids  = $c.EnhancedKeyUsageList.ObjectId
+                            $names = $c.EnhancedKeyUsageList.FriendlyName
+                            $isEmail = ($emailOids | Where-Object { $oids -contains $_ }) -or ($emailEkuNames | Where-Object { $names -contains $_ })
+                            if (-not $isEmail) { continue }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
                     } catch {}
+                    # YubiKey PIV slot 9c fallback (digital signature/email slot)
+                    if (-not $firing) {
+                        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+                        if (Test-Path $ykmanPath) {
+                            try {
+                                $ykInfo = & $ykmanPath info 2>$null
+                                if ($ykInfo) {
+                                    $certPem = & $ykmanPath "piv" "certificates" "export" "9c" "-" 2>$null
+                                    if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                        $tmp = [System.IO.Path]::GetTempFileName()
+                                        ($certPem -join "`n") | Out-File $tmp -Encoding ASCII
+                                        $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                        Remove-Item $tmp -Force
+                                        $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                        if ($d -ge 0 -and $d -le $thresh) { $firing = $true }
+                                    }
+                                }
+                            } catch {}
+                        }
+                    }
                     if (-not $firing) { continue }
                 }
 
