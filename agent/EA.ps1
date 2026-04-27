@@ -165,57 +165,35 @@ function Get-RelevantAnnouncements($data) {
             if ($null -eq $daysLeft -or $daysLeft -gt $thresholdDays) { continue }
         }
 
-        # Conditional: cert_expiry — only show if any certificate expires within threshold
+        # Conditional: cert_expiry — only show if any dashboard-monitored cert expires within threshold
         if ($item.Condition -eq "cert_expiry") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
             try {
-                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
-                foreach ($c in $allCerts) {
-                    $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
-                }
+                $monCerts = Get-Content "$env:TEMP\ea_monitored_certs.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                if (@($monCerts) | Where-Object { $_.days -ge 0 -and $_.days -le $thresholdDays }) { $certExpiringSoon = $true }
             } catch {}
             if (-not $certExpiringSoon) { continue }
         }
 
-        # Conditional: cert_expiry_email — only show if an email/signing cert expires within threshold
+        # Conditional: cert_expiry_email — only show if a dashboard-monitored email cert expires within threshold
         if ($item.Condition -eq "cert_expiry_email") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            $emailOids     = @('1.3.6.1.5.5.7.3.4')
-            $emailEkuNames = @('Secure Email','Email Protection')
             try {
-                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
-                foreach ($c in $allCerts) {
-                    $oids  = $c.EnhancedKeyUsageList.ObjectId
-                    $names = $c.EnhancedKeyUsageList.FriendlyName
-                    $isEmail = ($emailOids | Where-Object { $oids -contains $_ }) -or ($emailEkuNames | Where-Object { $names -contains $_ })
-                    if (-not $isEmail) { continue }
-                    $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
-                }
+                $monCerts = Get-Content "$env:TEMP\ea_monitored_certs.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                if (@($monCerts) | Where-Object { $_.type -eq "email" -and $_.days -ge 0 -and $_.days -le $thresholdDays }) { $certExpiringSoon = $true }
             } catch {}
             if (-not $certExpiringSoon) { continue }
         }
 
-        # Conditional: cert_expiry_auth — only show if a client auth/smart card cert expires within threshold
+        # Conditional: cert_expiry_auth — only show if a dashboard-monitored auth cert expires within threshold
         if ($item.Condition -eq "cert_expiry_auth") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            # Match: Client Auth OID, Smart Card Logon OID, or empty EKU (PIV/YubiKey via minidriver)
-            # Skip certs that have EKUs but none of them are auth-related (e.g. code signing, email only)
-            $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
             try {
-                $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
-                foreach ($c in $allCerts) {
-                    $oids = @($c.EnhancedKeyUsageList.ObjectId)
-                    $hasAuthOid = $authOids | Where-Object { $oids -contains $_ }
-                    $isEmpty    = ($oids.Count -eq 0)
-                    if (-not $hasAuthOid -and -not $isEmpty) { continue }
-                    $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                    if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
-                }
+                $monCerts = Get-Content "$env:TEMP\ea_monitored_certs.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                if (@($monCerts) | Where-Object { $_.type -eq "auth" -and $_.days -ge 0 -and $_.days -le $thresholdDays }) { $certExpiringSoon = $true }
             } catch {}
             if (-not $certExpiringSoon) { continue }
         }
@@ -458,53 +436,35 @@ function Start-AnnouncementsLoad {
                     if (-not $regMatch) { continue }
                 }
 
-                # Conditional: cert_expiry — any cert with private key expiring within threshold
+                # Conditional: cert_expiry — any dashboard-monitored cert expiring within threshold
                 if ($item.Condition -eq "cert_expiry") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
                     try {
-                        foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
-                        }
+                        $monCerts = Get-Content "$env:TEMP\ea_monitored_certs.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                        if (@($monCerts) | Where-Object { $_.days -ge 0 -and $_.days -le $thresh }) { $firing = $true }
                     } catch {}
                     if (-not $firing) { continue }
                 }
 
-                # Conditional: cert_expiry_email — email/signing cert expiring within threshold
+                # Conditional: cert_expiry_email — dashboard-monitored email cert expiring within threshold
                 if ($item.Condition -eq "cert_expiry_email") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    $emailOids     = @('1.3.6.1.5.5.7.3.4')
-                    $emailEkuNames = @('Secure Email','Email Protection')
                     try {
-                        foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $oids  = $c.EnhancedKeyUsageList.ObjectId
-                            $names = $c.EnhancedKeyUsageList.FriendlyName
-                            $isEmail = ($emailOids | Where-Object { $oids -contains $_ }) -or ($emailEkuNames | Where-Object { $names -contains $_ })
-                            if (-not $isEmail) { continue }
-                            $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
-                        }
+                        $monCerts = Get-Content "$env:TEMP\ea_monitored_certs.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                        if (@($monCerts) | Where-Object { $_.type -eq "email" -and $_.days -ge 0 -and $_.days -le $thresh }) { $firing = $true }
                     } catch {}
                     if (-not $firing) { continue }
                 }
 
-                # Conditional: cert_expiry_auth — client auth/smart card cert expiring within threshold
+                # Conditional: cert_expiry_auth — dashboard-monitored auth cert expiring within threshold
                 if ($item.Condition -eq "cert_expiry_auth") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    # Match: Client Auth OID, Smart Card Logon OID, or empty EKU (PIV/YubiKey via minidriver)
-                    $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
                     try {
-                        foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
-                            $oids = @($c.EnhancedKeyUsageList.ObjectId)
-                            $hasAuthOid = $authOids | Where-Object { $oids -contains $_ }
-                            $isEmpty    = ($oids.Count -eq 0)
-                            if (-not $hasAuthOid -and -not $isEmpty) { continue }
-                            $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
-                            if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
-                        }
+                        $monCerts = Get-Content "$env:TEMP\ea_monitored_certs.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                        if (@($monCerts) | Where-Object { $_.type -eq "auth" -and $_.days -ge 0 -and $_.days -le $thresh }) { $firing = $true }
                     } catch {}
                     if (-not $firing) { continue }
                 }
@@ -929,6 +889,7 @@ function Start-AccountLoad {
 
         # --- Certificate checks ---
         $certRows = @()
+        $certData  = @()   # mirrored cert list for announcement conditions
         $alertDays = 14
 
         # YubiKey PIV certificates
@@ -948,6 +909,7 @@ function Start-AccountLoad {
                             $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                             $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($cert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                             $certRows += ,@("YubiKey (Slot $slot):", $label, $color)
+                            $certData  += @{type="auth"; days=$daysLeft}
                         }
                     }
                 }
@@ -964,6 +926,7 @@ function Start-AccountLoad {
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($vscCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                 $certRows += ,@("Smart Card Cert:", $label, $color)
+                $certData  += @{type="auth"; days=$daysLeft}
             }
         } catch {}
 
@@ -990,6 +953,7 @@ function Start-AccountLoad {
 
             foreach ($cert in $scCerts) {
                 $daysLeft = [math]::Ceiling(($cert.NotAfter - [datetime]::Now).TotalDays)
+                $certData += @{type="auth"; days=$daysLeft}
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($cert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
 
@@ -1028,6 +992,7 @@ function Start-AccountLoad {
                     $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                     $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($remaining.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                     $certRows += ,@("Virtual Smart Card:", $label, $color)
+                    $certData  += @{type="auth"; days=$daysLeft}
                 }
             }
         } catch {}
@@ -1042,6 +1007,7 @@ function Start-AccountLoad {
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailSignCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                 $certRows += ,@("Email Signing Cert:", $label, $color)
+                $certData  += @{type="email"; days=$daysLeft}
             }
         } catch {}
 
@@ -1061,8 +1027,12 @@ function Start-AccountLoad {
                 $color = if ($daysLeft -lt 0) { "#DC2626" } elseif ($daysLeft -le $alertDays) { "#D97706" } else { "#059669" }
                 $label = if ($daysLeft -lt 0) { "EXPIRED" } else { "$($emailEncCert.NotAfter.ToString('MMM d, yyyy')) ($daysLeft days)" }
                 $certRows += ,@("Email Encryption Cert:", $label, $color)
+                $certData  += @{type="email"; days=$daysLeft}
             }
         } catch {}
+
+        # Write monitored cert data for announcement conditions (avoids redundant cert store queries)
+        try { $certData | ConvertTo-Json -Compress | Set-Content "$env:TEMP\ea_monitored_certs.json" -Encoding UTF8 } catch {}
 
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
