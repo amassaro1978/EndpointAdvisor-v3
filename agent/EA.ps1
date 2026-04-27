@@ -203,19 +203,16 @@ function Get-RelevantAnnouncements($data) {
         if ($item.Condition -eq "cert_expiry_auth") {
             $thresholdDays = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
             $certExpiringSoon = $false
-            # Exclude email-only certs; everything else (auth EKU, empty EKU, PIV/YubiKey) counts as auth
-            $emailOnlyOids  = @('1.3.6.1.5.5.7.3.4')
-            $emailOnlyNames = @('Secure Email','Email Protection')
+            # Match: Client Auth OID, Smart Card Logon OID, or empty EKU (PIV/YubiKey via minidriver)
+            # Skip certs that have EKUs but none of them are auth-related (e.g. code signing, email only)
+            $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
             try {
                 $allCerts = Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey }
                 foreach ($c in $allCerts) {
-                    $oids  = @($c.EnhancedKeyUsageList.ObjectId)
-                    $names = @($c.EnhancedKeyUsageList.FriendlyName)
-                    # Skip if cert has EKUs and ALL of them are email-only
-                    if ($oids.Count -gt 0) {
-                        $nonEmail = $oids | Where-Object { $emailOnlyOids -notcontains $_ }
-                        if (-not $nonEmail) { continue }
-                    }
+                    $oids = @($c.EnhancedKeyUsageList.ObjectId)
+                    $hasAuthOid = $authOids | Where-Object { $oids -contains $_ }
+                    $isEmpty    = ($oids.Count -eq 0)
+                    if (-not $hasAuthOid -and -not $isEmpty) { continue }
                     $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                     if ($d -ge 0 -and $d -le $thresholdDays) { $certExpiringSoon = $true; break }
                 }
@@ -497,15 +494,14 @@ function Start-AnnouncementsLoad {
                 if ($item.Condition -eq "cert_expiry_auth") {
                     $thresh = if ($item.ConditionThresholdDays) { [int]$item.ConditionThresholdDays } else { 14 }
                     $firing = $false
-                    # Exclude email-only certs; everything else (auth EKU, empty EKU, PIV/YubiKey) counts as auth
-                    $emailOnlyOids = @('1.3.6.1.5.5.7.3.4')
+                    # Match: Client Auth OID, Smart Card Logon OID, or empty EKU (PIV/YubiKey via minidriver)
+                    $authOids = @('1.3.6.1.5.5.7.3.2','1.3.6.1.4.1.311.20.2.2')
                     try {
                         foreach ($c in (Get-ChildItem "Cert:\CurrentUser\My" -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey })) {
                             $oids = @($c.EnhancedKeyUsageList.ObjectId)
-                            if ($oids.Count -gt 0) {
-                                $nonEmail = $oids | Where-Object { $emailOnlyOids -notcontains $_ }
-                                if (-not $nonEmail) { continue }
-                            }
+                            $hasAuthOid = $authOids | Where-Object { $oids -contains $_ }
+                            $isEmpty    = ($oids.Count -eq 0)
+                            if (-not $hasAuthOid -and -not $isEmpty) { continue }
                             $d = [math]::Ceiling(($c.NotAfter - [datetime]::Now).TotalDays)
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
