@@ -538,6 +538,26 @@ function Start-AnnouncementsLoad {
                             if ($d -ge 0 -and $d -le $thresh) { $firing = $true; break }
                         }
                     } catch {}
+                    # YubiKey PIV slot 9a fallback (same path the dashboard cert display uses)
+                    if (-not $firing) {
+                        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+                        if (Test-Path $ykmanPath) {
+                            try {
+                                $ykInfo = & $ykmanPath info 2>$null
+                                if ($ykInfo) {
+                                    $certPem = & $ykmanPath "piv" "certificates" "export" "9a" "-" 2>$null
+                                    if ($certPem -and ($certPem -join "`n") -match "-----BEGIN CERTIFICATE-----") {
+                                        $tmp = [System.IO.Path]::GetTempFileName()
+                                        ($certPem -join "`n") | Out-File $tmp -Encoding ASCII
+                                        $ykCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($tmp)
+                                        Remove-Item $tmp -Force
+                                        $d = [math]::Ceiling(($ykCert.NotAfter - [datetime]::Now).TotalDays)
+                                        if ($d -ge 0 -and $d -le $thresh) { $firing = $true }
+                                    }
+                                }
+                            } catch {}
+                        }
+                    }
                     if (-not $firing) { continue }
                 }
 
