@@ -1,4 +1,4 @@
-# Endpoint Advisor v7.3.0
+# Endpoint Advisor v7.3.1
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
@@ -334,7 +334,7 @@ The agent monitors multiple certificate types from the Windows Certificate Store
 | Item | Detail |
 |------|--------|
 | **OS Info** | Windows edition + display version (e.g. "Windows 11 Enterprise Build: 25H2"). Queried via `Get-CimInstance Win32_OperatingSystem` + registry `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion`. |
-| **EA Version** | "Endpoint Advisor v7.3.0" displayed below OS info |
+| **EA Version** | "Endpoint Advisor v7.3.1" displayed below OS info |
 
 ---
 
@@ -457,6 +457,9 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 ---
 
 ## Version History
+
+### v7.3.1 (May 2026)
+- **ykman dual-path support** — agent now checks both `Yubikey Manager` (GUI install) and `Yubikey Manager CLI` install paths when locating `ykman.exe`, resolving detection failures on endpoints where only the CLI-only package is installed.
 
 ### v7.3.0 (April 2026)
 - **Targeted cert expiry conditions** — two new conditions: `cert_expiry_email` (email/signing certs by EKU) and `cert_expiry_auth` (client auth/smart card certs by EKU + YubiKey slot 9a). Enables separate announcements with separate KB links for each cert type.
