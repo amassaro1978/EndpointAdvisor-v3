@@ -21,6 +21,13 @@ $DefaultConfig = @{
     LogMaxSizeMB    = 2
 }
 
+# ---- Disk space thresholds for C: drive (Account Information section) -------
+# Below $DiskCritThresholdGB  → Red   (critical)
+# Below $DiskWarnThresholdGB  → Amber (warning)
+# At or above $DiskWarnThresholdGB → Green (OK)
+$Script:DiskWarnThresholdGB = 20   # GB — amber threshold
+$Script:DiskCritThresholdGB = 10   # GB — red threshold
+
 # ---- CHANGE THIS to your company's registry path ----------------------------
 # Group targeting reads from: HKLM:\SOFTWARE\<CompanyRegPath>\targeting\GROUP
 # Set this to match your organization's registry namespace (e.g. "Contoso", "AcmeCorp")
@@ -165,6 +172,21 @@ function Get-RelevantAnnouncements($data) {
             } catch {}
             # Only include if daysLeft is known and within threshold
             if ($null -eq $daysLeft -or $daysLeft -gt $thresholdDays) { continue }
+        }
+
+        # Conditional: low_disk_space — only show if C: drive free space is below threshold
+        if ($item.Condition -eq "low_disk_space") {
+            $threshGB = if ($item.PSObject.Properties['ConditionThresholdGB'] -and $item.ConditionThresholdGB) { [double]$item.ConditionThresholdGB } else { $Script:DiskWarnThresholdGB }
+            $diskFiring = $false
+            try {
+                $diskData = Get-Content "$env:TEMP\ea_disk_space.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                if ($diskData -and $diskData.freeGB -lt $threshGB) { $diskFiring = $true }
+                elseif (-not $diskData) {
+                    $d = Get-PSDrive C -ErrorAction SilentlyContinue
+                    if ($d -and ($d.Free / 1GB) -lt $threshGB) { $diskFiring = $true }
+                }
+            } catch {}
+            if (-not $diskFiring) { continue }
         }
 
         # Conditional: cert_expiry — only show if any dashboard-monitored cert expires within threshold
@@ -459,6 +481,21 @@ function Start-AnnouncementsLoad {
                         }
                     } catch {}
                     if ($null -eq $pwDaysLeft -or $pwDaysLeft -gt $thresh) { continue }
+                }
+
+                # Conditional: low_disk_space — only show if C: drive free space is below threshold
+                if ($item.Condition -eq "low_disk_space") {
+                    $threshGB = if ($item.PSObject.Properties['ConditionThresholdGB'] -and $item.ConditionThresholdGB) { [double]$item.ConditionThresholdGB } else { 20 }
+                    $diskFiring = $false
+                    try {
+                        $diskData = Get-Content "$env:TEMP\ea_disk_space.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                        if ($diskData -and $diskData.freeGB -lt $threshGB) { $diskFiring = $true }
+                        elseif (-not $diskData) {
+                            $d = Get-PSDrive C -ErrorAction SilentlyContinue
+                            if ($d -and ($d.Free / 1GB) -lt $threshGB) { $diskFiring = $true }
+                        }
+                    } catch {}
+                    if (-not $diskFiring) { continue }
                 }
 
                 # Conditional: cert_expiry — any dashboard-monitored cert expiring within threshold
@@ -875,10 +912,10 @@ function Start-SupportLoad {
 
 # ---- Async section: Account Information --------------------------------------
 function Start-AccountLoad {
-    param($Dispatcher, $Container)
+    param($Dispatcher, $Container, $DiskWarnGB, $DiskCritGB)
 
     Start-TrackedRunspace -Script {
-        param($Dispatcher, $Container)
+        param($Dispatcher, $Container, $DiskWarnGB, $DiskCritGB)
         Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
         $accountName  = $env:USERNAME
@@ -1064,6 +1101,25 @@ function Start-AccountLoad {
         # Write monitored cert data for announcement conditions (avoids redundant cert store queries)
         try { $certData | ConvertTo-Json -Compress | Set-Content "$env:TEMP\ea_monitored_certs.json" -Encoding UTF8 } catch {}
 
+        # ---- C: drive space check ----
+        $diskFreeGB  = $null
+        $diskTotalGB = $null
+        $diskColor   = "#059669"
+        $diskLabel   = "Unknown"
+        try {
+            $diskDrive   = Get-PSDrive C -ErrorAction Stop
+            $diskFreeGB  = [math]::Round($diskDrive.Free  / 1GB, 1)
+            $diskTotalGB = [math]::Round(($diskDrive.Free + $diskDrive.Used) / 1GB, 1)
+            $diskUsedPct = [math]::Round(($diskDrive.Used / ($diskDrive.Free + $diskDrive.Used)) * 100, 0)
+            $diskLabel   = "$diskFreeGB GB free of $diskTotalGB GB ($diskUsedPct% used)"
+            $diskColor   = if     ($diskFreeGB -lt $DiskCritGB) { "#DC2626" } `
+                           elseif ($diskFreeGB -lt $DiskWarnGB) { "#D97706" } `
+                           else                                  { "#059669" }
+            # Write disk state for announcement conditions
+            [PSCustomObject]@{ freeGB = $diskFreeGB; totalGB = $diskTotalGB } |
+                ConvertTo-Json -Compress | Set-Content "$env:TEMP\ea_disk_space.json" -Encoding UTF8
+        } catch {}
+
         $Dispatcher.Invoke([Action]{
             $Container.Children.Clear()
             $mkB = { param($c) [System.Windows.Media.BrushConverter]::new().ConvertFrom($c) }
@@ -1097,6 +1153,8 @@ function Start-AccountLoad {
             } else {
                 $rows += ,@("Password Expires:", $pwdExpiryStr, "#1E293B")
             }
+            # C: drive row
+            $rows += ,@("C: Drive:", $diskLabel, $diskColor)
 
             foreach ($r in $rows) {
                 $row = New-Object System.Windows.Controls.RowDefinition; $row.Height = "Auto"
@@ -1173,7 +1231,7 @@ function Start-AccountLoad {
                 $grid.Children.Add($val) | Out-Null
             }
         })
-    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container }
+    } -Parameters @{ Dispatcher=$Dispatcher; Container=$Container; DiskWarnGB=$DiskWarnGB; DiskCritGB=$DiskCritGB }
 }
 
 # ---- Dashboard ---------------------------------------------------------------
@@ -1294,7 +1352,8 @@ function Show-Dashboard {
     Start-WULoad       -Dispatcher $dispatcher -Container $wuPanel -ToastFlags $Script:ToastFlags
     Start-SupportLoad  -Dispatcher $dispatcher -Container $supPanel `
         -ContentDataUrl $Config.ContentDataUrl -GitHubToken $Config.GitHubToken
-    Start-AccountLoad  -Dispatcher $dispatcher -Container $acctPanel
+    Start-AccountLoad  -Dispatcher $dispatcher -Container $acctPanel `
+        -DiskWarnGB $Script:DiskWarnThresholdGB -DiskCritGB $Script:DiskCritThresholdGB
 }
 
 # ---- Polling / refresh -------------------------------------------------------
