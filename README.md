@@ -149,6 +149,36 @@ Announcements can be conditionally displayed based on the user's password status
 5. When user changes password → announcement auto-hides on next check
 6. If AD is unreachable → fails safe (announcement hidden)
 
+#### Conditional Announcements: Low Disk Space
+
+Announcements can be conditionally displayed when the C: drive is running low on free space:
+
+| Setting | Description |
+|---------|-------------|
+| Condition | `low_disk_space` |
+| ConditionThresholdGB | Free space (GB) below which the announcement shows. Defaults to `$DiskWarnThresholdGB` (script default: 20 GB) if not specified. |
+| ConditionKbUrl | Optional link to a "how to free disk space" KB article |
+
+**How it works:**
+1. Admin creates an announcement with Condition = `low_disk_space` and an optional GB threshold
+2. `Start-AccountLoad` queries `Get-PSDrive C` and writes the result to `%TEMP%\ea_disk_space.json`
+3. Announcement conditions read from this file — if free space is below the threshold, the announcement is shown
+4. Falls back to a direct `Get-PSDrive C` call if the temp file hasn't been written yet (e.g. first launch)
+5. When the user frees space and it rises above the threshold → announcement auto-hides on next check
+
+**Example ContentData.json entry:**
+```json
+{
+  "id": "low-disk-001",
+  "Condition": "low_disk_space",
+  "ConditionThresholdGB": 15,
+  "Priority": "warning",
+  "Title": "Low Disk Space on C:",
+  "Text": "Your C: drive has less than 15 GB of free space. Please free up space to avoid performance issues.",
+  "ConditionKbUrl": "https://kb.yourorg.com/free-disk-space"
+}
+```
+
 #### Conditional Announcements: Certificate Expiry
 
 Three cert-specific conditions allow targeting by cert type, so you can show different announcements (with different KB links and action buttons) depending on what kind of cert is expiring:
@@ -269,9 +299,28 @@ An update is flagged as "(restart required)" if ANY of these conditions are true
 | **How it works** | Uses `[adsisearcher]` to query the current user's AD object by `sAMAccountName`. No domain controller binding issues — uses the default ADSI provider. |
 | **Properties queried** | `displayName`, `pwdLastSet`, `userAccountControl`, `msDS-UserPasswordExpiryTimeComputed` |
 | **Password expiry** | Calculated from `msDS-UserPasswordExpiryTimeComputed` (FileTime format). This property accounts for fine-grained password policies. |
-| **Display** | Shows username, display name, password expiry date, and days remaining |
+| **Display** | Shows username, display name, password expiry date, days remaining, and C: drive free space |
 | **Color coding** | Green (> 14 days), Amber (≤ 14 days), Red (expired) |
 | **Never expires** | Detected when the FileTime value is 0 or `Int64.MaxValue` |
+
+#### C: Drive Space
+
+The account section also displays a **C: Drive** row showing free space, total capacity, and usage percentage:
+
+| Threshold | Colour |
+|-----------|--------|
+| Free space ≥ `$DiskWarnThresholdGB` (default 20 GB) | 🟢 Green |
+| Free space < `$DiskWarnThresholdGB` and ≥ `$DiskCritThresholdGB` | 🟡 Amber |
+| Free space < `$DiskCritThresholdGB` (default 10 GB) | 🔴 Red |
+
+Thresholds are defined at the top of `EA.ps1` and are easy to adjust:
+
+```powershell
+$Script:DiskWarnThresholdGB = 20   # Amber threshold (GB free)
+$Script:DiskCritThresholdGB = 10   # Red threshold (GB free)
+```
+
+Disk state is written to `%TEMP%\ea_disk_space.json` after each load so the announcements runspace can evaluate the `low_disk_space` condition without a duplicate disk query.
 
 ### 5. Certificate Monitoring
 
@@ -393,7 +442,7 @@ Single-file HTML admin interface — no server required. Opens in any browser.
 - **GitHub integration**: Load/save `ContentData.json` directly to a GitHub repo
 - **Announcement management**: Add, edit, delete announcements with priority levels
 - **Group targeting**: Target announcements to specific device groups
-- **Conditional announcements**: Password expiry-based announcements with configurable threshold
+- **Conditional announcements**: Trigger announcements based on password expiry, certificate expiry (by type), or C: drive free space — each with a configurable threshold
 - **Support info management**: Add help desk contacts, links, documentation
 - **Live preview**: See how announcements will render before publishing
 
@@ -407,8 +456,8 @@ Single-file HTML admin interface — no server required. Opens in any browser.
 | Enabled | Toggle on/off without deleting |
 | Target Group | Leave blank for all devices. Enter group name (e.g., "ENG") to target specific devices. Enable **Contains match** to match partial group names (e.g., "IT" matches "REMOTE IT"). |
 | Registry Key | Optional registry key targeting — only show if key/value/data matches on endpoint |
-| Condition | Optional conditional display (`password_expiry`, `cert_expiry`, `cert_expiry_email`, `cert_expiry_auth`) |
-| Condition Threshold | Days threshold for conditional announcements (e.g., 30 days for cert expiry) |
+| Condition | Optional conditional display (`password_expiry`, `cert_expiry`, `cert_expiry_email`, `cert_expiry_auth`, `low_disk_space`) |
+| Condition Threshold | Days threshold for cert/password conditions. GB threshold for `low_disk_space` (default 20 GB) |
 | KB Link | Optional knowledge base URL for conditional announcements |
 | Nag until acknowledged | For critical items — re-toasts at a configurable interval |
 | Nag interval | Minutes between re-notifications (default: 30) |
@@ -460,6 +509,9 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 
 ### v7.3.1 (May 2026)
 - **ykman dual-path support** — agent now checks both `Yubikey Manager` (GUI install) and `Yubikey Manager CLI` install paths when locating `ykman.exe`, resolving detection failures on endpoints where only the CLI-only package is installed.
+- **C: drive space check** — new row in the Account Information section displays free space, total capacity, and usage percentage with traffic-light colour coding (green / amber / red). Thresholds are configurable variables at the top of `EA.ps1` (`$Script:DiskWarnThresholdGB` and `$Script:DiskCritThresholdGB`, defaults 20 GB and 10 GB respectively). Disk state is cached to `%TEMP%\ea_disk_space.json` after each load.
+- **`low_disk_space` conditional announcement** — new announcement condition that shows only when C: drive free space falls below a configurable GB threshold. Supports an optional per-announcement `ConditionThresholdGB` override; falls back to the script-level warn threshold. Falls back to a direct `Get-PSDrive` check if the temp file hasn't been written yet.
+- **Admin panel: low disk space condition** — "Low Disk Space" option added to the Condition dropdown. Selecting it swaps the input row to show a **Threshold GB** field and its own optional KB URL field (instead of the Threshold Days row used for cert/password conditions). Saves `ConditionThresholdGB` to JSON and restores correctly on edit.
 
 ### v7.3.0 (April 2026)
 - **Targeted cert expiry conditions** — two new conditions: `cert_expiry_email` (email/signing certs by EKU) and `cert_expiry_auth` (client auth/smart card certs by EKU + YubiKey slot 9a). Enables separate announcements with separate KB links for each cert type.
