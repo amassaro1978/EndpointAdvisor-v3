@@ -282,7 +282,7 @@ The agent monitors multiple certificate types from the Windows Certificate Store
 | Item | Detail |
 |------|--------|
 | **Source** | YubiKey Manager CLI (`ykman.exe`) |
-| **ykman path** | `C:\Program Files\Yubico\Yubikey Manager\ykman.exe` |
+| **ykman path** | `C:\Program Files\Yubico\Yubikey Manager\ykman.exe` (GUI install) or `C:\Program Files\Yubico\Yubikey Manager CLI\ykman.exe` (CLI-only install) — agent checks both, uses whichever exists |
 | **How it works** | Runs `ykman info` to detect YubiKey presence, then exports PIV certificates from each slot using `ykman piv certificates export <slot> -` |
 | **Slots checked** | 9a (Authentication), 9c (Digital Signature), 9e (Card Authentication). Slot 9d (Key Management) is excluded. |
 | **Certificate parsing** | Exports PEM to temp file → loads as `X509Certificate2` → reads `NotAfter` date → calculates days remaining |
