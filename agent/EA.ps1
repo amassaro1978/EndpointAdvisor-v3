@@ -918,9 +918,14 @@ function Start-AccountLoad {
         $alertDays = 14
 
         # YubiKey PIV certificates
-        $ykmanPath = "C:\Program Files\Yubico\Yubikey Manager\ykman.exe"
+        # Check both legacy GUI path and new CLI-only install path
+        $ykmanCandidates = @(
+            "C:\Program Files\Yubico\Yubikey Manager\ykman.exe",
+            "C:\Program Files\Yubico\Yubikey Manager CLI\ykman.exe"
+        )
+        $ykmanPath = $ykmanCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         try {
-            if (Test-Path $ykmanPath) {
+            if ($ykmanPath) {
                 $ykInfo = & $ykmanPath info 2>$null
                 if ($ykInfo) {
                     foreach ($slot in @("9a", "9c", "9e")) {
