@@ -780,7 +780,7 @@ function Start-WULoad {
                     if ($rebootNeeded) { $title += " (restart required)" }
                     $updates += [PSCustomObject]@{
                         Title    = $title
-                        Deadline = if ($u.Deadline) { [System.Management.ManagementDateTimeConverter]::ToDateTime($u.Deadline) } else { $null }
+                        Deadline = $u.Deadline
                     }
                 }
             }
@@ -834,11 +834,36 @@ function Start-WULoad {
         [System.IO.File]::AppendAllText("C:\temp\toast-debug.log",
             "$(Get-Date) | Updates: $($allPending.Count) | Restart: $($restartUpdates.Count) | ToastFlags ref: $($null -ne $ToastFlags)`r`n")
 
+        # Confirmation check: CCM can briefly return stale post-reboot data (typically clears within ~10s).
+        # If we see updates, wait 15s and re-query to confirm before toasting.
+        $confirmedUpdates = $updates
+        if ($updates.Count -gt 0 -and -not $ccmMissing) {
+            Start-Sleep -Seconds 15
+            try {
+                $rawConfirm = Get-CimInstance -Namespace ROOT\ccm\ClientSDK -ClassName CCM_SoftwareUpdate -OperationTimeoutSec 30 -ErrorAction Stop |
+                              Where-Object { $_.ComplianceState -eq 0 }
+                $confirmedUpdates = @()
+                if ($rawConfirm) {
+                    foreach ($u in $rawConfirm) {
+                        $rn = $false
+                        try { $rn = [bool]$u.IsRebootPending -or $u.EvaluationState -in @(8,9,10) -or $u.RebootOutsideServiceWindow -eq $true -or ($u.OverrideServiceWindows -ne $null) -or ($u.Name -match 'Cumulative Update|Security Update|Servicing Stack') } catch {}
+                        $confirmedUpdates += [PSCustomObject]@{ Title = $u.Name + $(if ($rn) { ' (restart required)' } else { '' }); Deadline = $null }
+                    }
+                }
+                [System.IO.File]::AppendAllText("C:\temp\toast-debug.log",
+                    "$(Get-Date) | CONFIRM CHECK | Updates: $($confirmedUpdates.Count)`r`n")
+            } catch {
+                # Confirmation query failed — treat as confirmed to avoid suppressing real alerts
+                $confirmedUpdates = $updates
+            }
+        }
+
+        $restartUpdates = @($confirmedUpdates | Where-Object { $_.Title -match 'restart required' })
         if ($restartUpdates.Count -gt 0) {
             $ToastFlags.RestartCount = $restartUpdates.Count
         }
         # For non-reboot updates, toast once per day
-        $noRebootUpdates = @($updates | Where-Object { $_.Title -notmatch 'restart required' })
+        $noRebootUpdates = @($confirmedUpdates | Where-Object { $_.Title -notmatch 'restart required' })
         if ($noRebootUpdates.Count -gt 0) {
             $todayKey = [datetime]::Now.ToString('yyyy-MM-dd')
             $lastPatchToast = [Environment]::GetEnvironmentVariable('EA_LAST_PATCH_TOAST', 'User')

@@ -1,4 +1,4 @@
-# Endpoint Advisor v7.3.1
+# Endpoint Advisor v7.3.2
 
 Zero infrastructure. No Node.js. No database. No server to maintain.
 
@@ -547,6 +547,9 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 - **Smart card cert classification** — distinguishes Physical, Virtual, and YubiKey certs using template names
 - **Configurable company registry path** — `$Script:CompanyRegPath` variable at top of script
 - **Renamed sections** — "BigFix Software Updates" → "Application Updates", "System Patch Updates" → "Microsoft Updates"
+
+### v7.3.2 (June 2026)
+- **Bug fix:** Microsoft Updates section displayed "ECM client not found on this device" when pending updates had a SCCM enforcement deadline set. Root cause: `ManagementDateTimeConverter::ToDateTime()` is a legacy `Get-WmiObject` API that expects a DMTF-format datetime string, but `Get-CimInstance` returns deadlines as proper .NET `DateTime` objects — causing an "argument out of range" exception that was caught by the outer handler and incorrectly flagged the CCM client as missing. Fix: removed the converter entirely; `Get-CimInstance` deadline values are already valid .NET `DateTime` objects and need no conversion.
 
 ### v7.0.0 (March 2026)
 - Automatic restart-required toast notifications (startup + every 4 hours)
