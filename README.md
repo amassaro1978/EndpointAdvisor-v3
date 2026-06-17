@@ -507,6 +507,9 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 
 ## Version History
 
+### v7.3.2 (June 2026)
+- **Bug fix:** Microsoft Updates section displayed "ECM client not found on this device" when pending updates had a SCCM enforcement deadline set. Root cause: `ManagementDateTimeConverter::ToDateTime()` is a legacy `Get-WmiObject` API that expects a DMTF-format datetime string, but `Get-CimInstance` returns deadlines as proper .NET `DateTime` objects — causing an "argument out of range" exception that was caught by the outer handler and incorrectly flagged the CCM client as missing. Fix: removed the converter entirely; `Get-CimInstance` deadline values are already valid .NET `DateTime` objects and need no conversion.
+
 ### v7.3.1 (May 2026)
 - **ykman dual-path support** — agent now checks both `Yubikey Manager` (GUI install) and `Yubikey Manager CLI` install paths when locating `ykman.exe`, resolving detection failures on endpoints where only the CLI-only package is installed.
 - **C: drive space check** — new row in the Account Information section displays free space, total capacity, and usage percentage with traffic-light colour coding (green / amber / red). Thresholds are configurable variables at the top of `EA.ps1` (`$Script:DiskWarnThresholdGB` and `$Script:DiskCritThresholdGB`, defaults 20 GB and 10 GB respectively). Disk state is cached to `%TEMP%\ea_disk_space.json` after each load.
@@ -547,9 +550,6 @@ $Script:ToastFlags = [hashtable]::Synchronized(@{
 - **Smart card cert classification** — distinguishes Physical, Virtual, and YubiKey certs using template names
 - **Configurable company registry path** — `$Script:CompanyRegPath` variable at top of script
 - **Renamed sections** — "BigFix Software Updates" → "Application Updates", "System Patch Updates" → "Microsoft Updates"
-
-### v7.3.2 (June 2026)
-- **Bug fix:** Microsoft Updates section displayed "ECM client not found on this device" when pending updates had a SCCM enforcement deadline set. Root cause: `ManagementDateTimeConverter::ToDateTime()` is a legacy `Get-WmiObject` API that expects a DMTF-format datetime string, but `Get-CimInstance` returns deadlines as proper .NET `DateTime` objects — causing an "argument out of range" exception that was caught by the outer handler and incorrectly flagged the CCM client as missing. Fix: removed the converter entirely; `Get-CimInstance` deadline values are already valid .NET `DateTime` objects and need no conversion.
 
 ### v7.0.0 (March 2026)
 - Automatic restart-required toast notifications (startup + every 4 hours)
