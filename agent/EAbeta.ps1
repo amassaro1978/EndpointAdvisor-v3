@@ -1420,21 +1420,43 @@ function Show-Dashboard {
     $inputRow.Children.Add($questionBox) | Out-Null
     $inputRow.Children.Add($askBtn) | Out-Null
 
-    # Status TextBlock (loading/error)
+    # Status TextBlock (loading/error) — shown below input while waiting
     $statusBlock = New-Object System.Windows.Controls.TextBlock
     $statusBlock.FontSize = 11
-    $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
-    $statusBlock.Margin = "0,0,0,6"
+    $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3B82F6")
+    $statusBlock.Margin = "0,6,0,0"
     $statusBlock.TextWrapping = "Wrap"
     $statusBlock.Visibility = [System.Windows.Visibility]::Collapsed
 
-    # Answer TextBlock
+    # Answer card — hidden until response arrives
+    $answerCard = New-Object System.Windows.Controls.Border
+    $answerCard.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#EFF6FF")
+    $answerCard.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
+    $answerCard.BorderThickness = "3,0,0,0"
+    $answerCard.CornerRadius = "0,4,4,0"
+    $answerCard.Padding = "12,10"
+    $answerCard.Margin = "0,10,0,0"
+    $answerCard.Visibility = [System.Windows.Visibility]::Collapsed
+
+    $answerInner = New-Object System.Windows.Controls.StackPanel
+
+    $answerLabel = New-Object System.Windows.Controls.TextBlock
+    $answerLabel.Text = "Answer"
+    $answerLabel.FontSize = 10
+    $answerLabel.FontWeight = "SemiBold"
+    $answerLabel.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
+    $answerLabel.Margin = "0,0,0,4"
+    $answerLabel.TextTransform = [System.Windows.TextDecorations]::new()
+
     $answerBlock = New-Object System.Windows.Controls.TextBlock
     $answerBlock.FontSize = 13
     $answerBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#1E293B")
-    $answerBlock.Margin = "0,4,0,0"
     $answerBlock.TextWrapping = "Wrap"
-    $answerBlock.LineHeight = 20
+    $answerBlock.LineHeight = 22
+
+    $answerInner.Children.Add($answerLabel) | Out-Null
+    $answerInner.Children.Add($answerBlock) | Out-Null
+    $answerCard.Child = $answerInner
 
     # Wire Ask button click handler
     $askBtn.Add_Click({
@@ -1442,8 +1464,8 @@ function Show-Dashboard {
         if ([string]::IsNullOrWhiteSpace($question) -or $questionBox.Tag) { return }
 
         $answerBlock.Text = ""
+        $answerCard.Visibility = [System.Windows.Visibility]::Collapsed
         $statusBlock.Text = "Searching knowledge base..."
-        $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3B82F6")
         $statusBlock.Visibility = [System.Windows.Visibility]::Visible
         $askBtn.IsEnabled = $false
 
@@ -1459,6 +1481,7 @@ function Show-Dashboard {
             AskBtn      = $askBtn
             StatusBlock = $statusBlock
             AnswerBlock = $answerBlock
+            AnswerCard  = $answerCard
         })
 
         # Run HTTP call in a fresh Runspace so the UI thread stays responsive
@@ -1480,6 +1503,7 @@ function Show-Dashboard {
                 $answer = if ($resp.answer) { $resp.answer } else { 'No answer returned from Help Bot.' }
                 $shared.Dispatcher.Invoke([System.Action]{
                     $shared.AnswerBlock.Text = $answer
+                    $shared.AnswerCard.Visibility = [System.Windows.Visibility]::Visible
                     $shared.StatusBlock.Visibility = [System.Windows.Visibility]::Collapsed
                     $shared.AskBtn.IsEnabled = $true
                 })
@@ -1500,7 +1524,7 @@ function Show-Dashboard {
     $askPanel.Children.Add($hintText) | Out-Null
     $askPanel.Children.Add($inputRow) | Out-Null
     $askPanel.Children.Add($statusBlock) | Out-Null
-    $askPanel.Children.Add($answerBlock) | Out-Null
+    $askPanel.Children.Add($answerCard) | Out-Null
     $askCard.Child = $askPanel
     $panel.Children.Add($askCard) | Out-Null
 
