@@ -1445,7 +1445,15 @@ function Show-Dashboard {
     # Wire Ask button click handler
     # Uses Start-Job for async HTTP + WinForms Timer to poll results on the UI thread
     # (Runspace+Dispatcher.Invoke deadlocks in WinForms-hosted WPF apps)
-    $askBtn.Add_Click({
+    # Capture configured Help Bot values as plain locals BEFORE the click closure is created.
+# Root cause (verified): reading $Script:HelpBotUrl/$Script:HelpBotApiKey at click-time, inside
+# a .GetNewClosure()-wrapped handler, does not reliably resolve against this script's actual
+# script scope -- it can silently read blank values and hit the "not configured" early-return
+# before the HTTP call ever fires. Capturing into locals here avoids any $Script: lookup at click-time.
+$configuredHelpBotUrl    = if ($Script:HelpBotUrl)    { $Script:HelpBotUrl }    else { $Config.HelpBotUrl }
+$configuredHelpBotApiKey = if ($Script:HelpBotApiKey) { $Script:HelpBotApiKey } else { $Config.HelpBotApiKey }
+
+$askBtn.Add_Click({
         $question = $wfTextBox.Text
         if ([string]::IsNullOrWhiteSpace($question)) { return }
 
@@ -1462,8 +1470,8 @@ function Show-Dashboard {
         $localStatusBlock.Visibility = [System.Windows.Visibility]::Visible
         $localAskBtn.IsEnabled = $false
 
-        $helpBotUrl    = if ($Script:HelpBotUrl)    { $Script:HelpBotUrl }    else { $Config.HelpBotUrl }
-        $helpBotApiKey = if ($Script:HelpBotApiKey) { $Script:HelpBotApiKey } else { $Config.HelpBotApiKey }
+        $helpBotUrl    = $configuredHelpBotUrl
+        $helpBotApiKey = $configuredHelpBotApiKey
 
         if ([string]::IsNullOrWhiteSpace($helpBotUrl)) {
             $localStatusBlock.Text = "Help Bot URL not configured. Set HelpBotUrl at the top of the script."
