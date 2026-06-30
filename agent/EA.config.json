@@ -3,5 +3,7 @@
   "GitHubToken": "",
   "RefreshInterval": 900,
   "LogPath": "C:\\ProgramData\\EndpointAdvisor\\EA.log",
-  "LogMaxSizeMB": 2
+  "LogMaxSizeMB": 2,
+  "HelpBotUrl": "",
+  "HelpBotApiKey": ""
 }
