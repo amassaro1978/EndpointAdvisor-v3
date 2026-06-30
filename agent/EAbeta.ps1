@@ -1446,7 +1446,6 @@ function Show-Dashboard {
     $answerLabel.FontWeight = "SemiBold"
     $answerLabel.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
     $answerLabel.Margin = "0,0,0,4"
-    $answerLabel.TextTransform = [System.Windows.TextDecorations]::new()
 
     $answerBlock = New-Object System.Windows.Controls.TextBlock
     $answerBlock.FontSize = 13
