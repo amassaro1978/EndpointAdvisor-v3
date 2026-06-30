@@ -1370,20 +1370,7 @@ function Show-Dashboard {
     $wfTextBox = New-Object System.Windows.Forms.TextBox
     $wfTextBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
     $wfTextBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)  # placeholder gray
-    $wfTextBox.Text = "Type your question..."
-    $wfTextBox.add_Enter({
-        if ($wfTextBox.Text -eq "Type your question...") {
-            $wfTextBox.Text = ""
-            $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
-        }
-    })
-    $wfTextBox.add_Leave({
-        if ([string]::IsNullOrWhiteSpace($wfTextBox.Text)) {
-            $wfTextBox.Text = "Type your question..."
-            $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-        }
-    })
+    $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
 
     $wfHost = New-Object System.Windows.Forms.Integration.WindowsFormsHost
     $wfHost.Height = 32
