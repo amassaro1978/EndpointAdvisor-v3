@@ -1345,17 +1345,46 @@ function Show-Dashboard {
 
     # Ask a Question (Help Bot)
     $panel.Children.Add((New-SectionHeader "Ask a Question")) | Out-Null
+
+    # Outer card with light background and border
+    $askCard = New-Object System.Windows.Controls.Border
+    $askCard.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#FFFFFF")
+    $askCard.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#E2E8F0")
+    $askCard.BorderThickness = "1"
+    $askCard.CornerRadius = "6"
+    $askCard.Padding = "12,10"
+    $askCard.Margin = "0,4,0,12"
+
     $askPanel = New-Object System.Windows.Controls.StackPanel
-    $askPanel.Margin = "0,0,0,8"
+
+    # Subtitle hint
+    $hintText = New-Object System.Windows.Controls.TextBlock
+    $hintText.Text = "Ask anything about IT support, software, or your device"
+    $hintText.FontSize = 11
+    $hintText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#64748B")
+    $hintText.Margin = "0,0,0,8"
+
+    # Horizontal row: TextBox + Ask button
+    $inputRow = New-Object System.Windows.Controls.Grid
+    $col1 = New-Object System.Windows.Controls.ColumnDefinition
+    $col1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+    $col2 = New-Object System.Windows.Controls.ColumnDefinition
+    $col2.Width = [System.Windows.GridLength]::Auto
+    $inputRow.ColumnDefinitions.Add($col1)
+    $inputRow.ColumnDefinitions.Add($col2)
+    $inputRow.Margin = "0,0,0,8"
 
     # Question input TextBox
     $questionBox = New-Object System.Windows.Controls.TextBox
     $questionBox.FontSize = 13
-    $questionBox.Padding = "8,6"
-    $questionBox.Margin = "0,0,0,6"
+    $questionBox.Padding = "8,7"
     $questionBox.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
+    $questionBox.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#CBD5E1")
+    $questionBox.BorderThickness = "1"
     $questionBox.Text = "Type your question..."
-    $questionBox.Tag = $true  # Tag=true means showing placeholder
+    $questionBox.Tag = $true
+    $questionBox.VerticalContentAlignment = "Center"
+    [System.Windows.Controls.Grid]::SetColumn($questionBox, 0)
 
     # Clear placeholder on focus
     $questionBox.Add_GotFocus({
@@ -1379,16 +1408,19 @@ function Show-Dashboard {
     $askBtn = New-Object System.Windows.Controls.Button
     $askBtn.Content = "Ask"
     $askBtn.FontSize = 12
-    $askBtn.Padding = "16,6"
-    $askBtn.Margin = "0,0,0,8"
+    $askBtn.Padding = "16,7"
+    $askBtn.Margin = "8,0,0,0"
     $askBtn.Cursor = [System.Windows.Input.Cursors]::Hand
     $askBtn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
     $askBtn.Foreground = [System.Windows.Media.Brushes]::White
     $askBtn.BorderThickness = "0"
-    $askBtn.HorizontalAlignment = "Left"
     $askBtn.FontWeight = "SemiBold"
+    [System.Windows.Controls.Grid]::SetColumn($askBtn, 1)
 
-    # Status TextBlock (for loading/error messages)
+    $inputRow.Children.Add($questionBox) | Out-Null
+    $inputRow.Children.Add($askBtn) | Out-Null
+
+    # Status TextBlock (loading/error)
     $statusBlock = New-Object System.Windows.Controls.TextBlock
     $statusBlock.FontSize = 11
     $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
@@ -1400,8 +1432,9 @@ function Show-Dashboard {
     $answerBlock = New-Object System.Windows.Controls.TextBlock
     $answerBlock.FontSize = 13
     $answerBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#1E293B")
-    $answerBlock.Margin = "0,0,0,0"
+    $answerBlock.Margin = "0,4,0,0"
     $answerBlock.TextWrapping = "Wrap"
+    $answerBlock.LineHeight = 20
 
     # Wire Ask button click handler
     $askBtn.Add_Click({
@@ -1464,11 +1497,12 @@ function Show-Dashboard {
         [void]$ps.BeginInvoke()
     }.GetNewClosure())
 
-    $askPanel.Children.Add($questionBox) | Out-Null
-    $askPanel.Children.Add($askBtn) | Out-Null
+    $askPanel.Children.Add($hintText) | Out-Null
+    $askPanel.Children.Add($inputRow) | Out-Null
     $askPanel.Children.Add($statusBlock) | Out-Null
     $askPanel.Children.Add($answerBlock) | Out-Null
-    $panel.Children.Add($askPanel) | Out-Null
+    $askCard.Child = $askPanel
+    $panel.Children.Add($askCard) | Out-Null
 
     # Support
     $panel.Children.Add((New-SectionHeader "Support")) | Out-Null
