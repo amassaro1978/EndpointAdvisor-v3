@@ -1462,6 +1462,13 @@ function Show-Dashboard {
         $helpBotUrl    = if ($Script:HelpBotUrl)    { $Script:HelpBotUrl }    else { $Config.HelpBotUrl }
         $helpBotApiKey = if ($Script:HelpBotApiKey) { $Script:HelpBotApiKey } else { $Config.HelpBotApiKey }
 
+        if ([string]::IsNullOrWhiteSpace($helpBotUrl)) {
+            $localStatusBlock.Text = "Help Bot URL not configured. Set HelpBotUrl at the top of the script."
+            $localStatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#D97706")
+            $localAskBtn.IsEnabled = $true
+            return
+        }
+
         # Run HTTP call in a background job (separate process, no threading issues)
         $job = Start-Job -ScriptBlock {
             param($url, $apiKey, $q)
