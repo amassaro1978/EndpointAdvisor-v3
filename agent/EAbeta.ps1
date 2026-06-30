@@ -1469,23 +1469,26 @@ function Show-Dashboard {
             return
         }
 
-        # Run HTTP call in a background job (separate process, no threading issues)
-        # Use $using: to capture closure variables into the job (more reliable than -ArgumentList)
+        # Serialize call params to a temp file — avoids all Start-Job variable passing issues
+        $tmpFile = [System.IO.Path]::GetTempFileName()
+        @{ Url = $helpBotUrl; ApiKey = $helpBotApiKey; Question = $question } | ConvertTo-Json | Set-Content -Path $tmpFile -Encoding UTF8
+
+        # Run HTTP call in a background job
         $job = Start-Job -ScriptBlock {
-            $url    = $using:helpBotUrl
-            $apiKey = $using:helpBotApiKey
-            $q      = $using:question
+            param($file)
+            $data = Get-Content -Path $file -Raw | ConvertFrom-Json
+            Remove-Item -Path $file -Force -ErrorAction SilentlyContinue
             [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
             try {
-                $body = '{"question":"' + $q + '","top_k":5}'
-                $resp = Invoke-RestMethod -Uri $url -Method Post `
-                    -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $apiKey } `
+                $body = '{"question":"' + $data.Question + '","top_k":5}'
+                $resp = Invoke-RestMethod -Uri $data.Url -Method Post `
+                    -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $data.ApiKey } `
                     -Body $body -TimeoutSec 30 -ErrorAction Stop
                 return @{ Success = $true; Answer = if ($resp.answer) { $resp.answer } else { 'No answer returned.' } }
             } catch {
                 return @{ Success = $false; Error = $_.Exception.Message }
             }
-        }
+        } -ArgumentList $tmpFile
 
         # WinForms Timer polls for job completion on the UI thread (safe for WPF controls)
         $pollTimer = New-Object System.Windows.Forms.Timer
