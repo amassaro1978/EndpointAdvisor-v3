@@ -1406,78 +1406,62 @@ function Show-Dashboard {
     # Wire Ask button click handler
     $askBtn.Add_Click({
         $question = $questionBox.Text
-        # Skip if empty or showing placeholder
         if ([string]::IsNullOrWhiteSpace($question) -or $questionBox.Tag) { return }
 
-        # Clear previous answer
         $answerBlock.Text = ""
-
-        # Show loading message
         $statusBlock.Text = "Searching knowledge base..."
         $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3B82F6")
         $statusBlock.Visibility = [System.Windows.Visibility]::Visible
-
-        # Disable button during request
         $askBtn.IsEnabled = $false
 
-        # Run HTTP request in background thread
-        # Use script-level vars if set, fall back to config
         $helpBotUrl    = if ($Script:HelpBotUrl)    { $Script:HelpBotUrl }    else { $Config.HelpBotUrl }
         $helpBotApiKey = if ($Script:HelpBotApiKey) { $Script:HelpBotApiKey } else { $Config.HelpBotApiKey }
-        $disp = $dispatcher
 
-        [System.Threading.Tasks.Task]::Run({
-            param($q, $url, $apiKey)
+        # Shared synchronized hashtable for cross-thread communication
+        $shared = [hashtable]::Synchronized(@{
+            Question    = $question
+            Url         = $helpBotUrl
+            ApiKey      = $helpBotApiKey
+            Dispatcher  = $dispatcher
+            AskBtn      = $askBtn
+            StatusBlock = $statusBlock
+            AnswerBlock = $answerBlock
+        })
 
-            $result = @{ Success = $false; Answer = ""; Error = "" }
+        # Run HTTP call in a fresh Runspace so the UI thread stays responsive
+        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+        $rs.ApartmentState = "STA"
+        $rs.ThreadOptions  = "ReuseThread"
+        $rs.Open()
+        $rs.SessionStateProxy.SetVariable('shared', $shared)
 
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        $ps.Runspace = $rs
+        [void]$ps.AddScript({
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
             try {
-                # Skip SSL validation for self-signed certs
-                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-
-                # Build JSON body
-                $body = @{ question = $q; top_k = 5 } | ConvertTo-Json -Compress
-
-                # Make HTTP POST request
-                $headers = @{
-                    'Content-Type' = 'application/json'
-                    'X-API-Key' = $apiKey
-                }
-
-                $response = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $body -TimeoutSec 30 -ErrorAction Stop
-
-                if ($response.answer) {
-                    $result.Success = $true
-                    $result.Answer = $response.answer
-                } else {
-                    $result.Error = "No answer returned from Help Bot."
-                }
-            }
-            catch {
-                $result.Error = "Failed to contact Help Bot: $($_.Exception.Message)"
-            }
-            finally {
+                $body = '{"question":"' + $shared.Question + '","top_k":5}'
+                $resp = Invoke-RestMethod -Uri $shared.Url -Method Post `
+                    -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $shared.ApiKey } `
+                    -Body $body -TimeoutSec 30 -ErrorAction Stop
+                $answer = if ($resp.answer) { $resp.answer } else { 'No answer returned from Help Bot.' }
+                $shared.Dispatcher.Invoke([System.Action]{
+                    $shared.AnswerBlock.Text = $answer
+                    $shared.StatusBlock.Visibility = [System.Windows.Visibility]::Collapsed
+                    $shared.AskBtn.IsEnabled = $true
+                })
+            } catch {
+                $err = $_.Exception.Message
+                $shared.Dispatcher.Invoke([System.Action]{
+                    $shared.StatusBlock.Text = "Error: $err"
+                    $shared.StatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#DC2626')
+                    $shared.AskBtn.IsEnabled = $true
+                })
+            } finally {
                 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
             }
-
-            return $result
-        }.GetNewClosure() @($question, $helpBotUrl, $helpBotApiKey)).ContinueWith({
-            param($t)
-            $result = $t.Result
-
-            # Update UI on dispatcher thread
-            $disp.Invoke([Action]{
-                $askBtn.IsEnabled = $true
-
-                if ($result.Success) {
-                    $statusBlock.Visibility = [System.Windows.Visibility]::Collapsed
-                    $answerBlock.Text = $result.Answer
-                } else {
-                    $statusBlock.Text = $result.Error
-                    $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
-                }
-            })
         })
+        [void]$ps.BeginInvoke()
     }.GetNewClosure())
 
     $askPanel.Children.Add($questionBox) | Out-Null
