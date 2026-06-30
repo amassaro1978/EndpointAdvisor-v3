@@ -1403,6 +1403,11 @@ function Show-Dashboard {
             $_.SuppressKeyPress = $true
             $askBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
         }
+        elseif ($_.Control -and $_.KeyCode -eq [System.Windows.Forms.Keys]::A) {
+            # WindowsFormsHost can swallow native Ctrl+A select-all; wire it explicitly
+            $_.SuppressKeyPress = $true
+            $wfTextBox.SelectAll()
+        }
     }.GetNewClosure())
 
     # Status TextBlock (loading/error) — shown below input while waiting
@@ -1465,7 +1470,7 @@ $askBtn.Add_Click({
 
         $localAnswerBlock.Text = ""
         $localAnswerCard.Visibility = [System.Windows.Visibility]::Collapsed
-        $localStatusBlock.Text = "Searching knowledge base..."
+        $localStatusBlock.Text = "Searching Knowledge Base..."
         $localStatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3B82F6")
         $localStatusBlock.Visibility = [System.Windows.Visibility]::Visible
         $localAskBtn.IsEnabled = $false
