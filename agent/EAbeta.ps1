@@ -1470,8 +1470,11 @@ function Show-Dashboard {
         }
 
         # Run HTTP call in a background job (separate process, no threading issues)
+        # Use $using: to capture closure variables into the job (more reliable than -ArgumentList)
         $job = Start-Job -ScriptBlock {
-            param($url, $apiKey, $q)
+            $url    = $using:helpBotUrl
+            $apiKey = $using:helpBotApiKey
+            $q      = $using:question
             [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
             try {
                 $body = '{"question":"' + $q + '","top_k":5}'
@@ -1482,7 +1485,7 @@ function Show-Dashboard {
             } catch {
                 return @{ Success = $false; Error = $_.Exception.Message }
             }
-        } -ArgumentList $helpBotUrl, $helpBotApiKey, $question
+        }
 
         # WinForms Timer polls for job completion on the UI thread (safe for WPF controls)
         $pollTimer = New-Object System.Windows.Forms.Timer
