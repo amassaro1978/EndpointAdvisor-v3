@@ -1447,11 +1447,17 @@ function Show-Dashboard {
         $question = $wfTextBox.Text
         if ([string]::IsNullOrWhiteSpace($question)) { return }
 
-        $answerBlock.Text = ""
-        $answerCard.Visibility = [System.Windows.Visibility]::Collapsed
-        $statusBlock.Text = "Searching knowledge base..."
-        $statusBlock.Visibility = [System.Windows.Visibility]::Visible
-        $askBtn.IsEnabled = $false
+        # Capture outer-scope WPF controls as locals so nested closure can see them
+        $localStatusBlock = $statusBlock
+        $localAnswerBlock = $answerBlock
+        $localAnswerCard  = $answerCard
+        $localAskBtn      = $askBtn
+
+        $localAnswerBlock.Text = ""
+        $localAnswerCard.Visibility = [System.Windows.Visibility]::Collapsed
+        $localStatusBlock.Text = "Searching knowledge base..."
+        $localStatusBlock.Visibility = [System.Windows.Visibility]::Visible
+        $localAskBtn.IsEnabled = $false
 
         $helpBotUrl    = if ($Script:HelpBotUrl)    { $Script:HelpBotUrl }    else { $Config.HelpBotUrl }
         $helpBotApiKey = if ($Script:HelpBotApiKey) { $Script:HelpBotApiKey } else { $Config.HelpBotApiKey }
@@ -1481,19 +1487,19 @@ function Show-Dashboard {
                 try {
                     $result = Receive-Job $job -ErrorAction Stop
                     if ($result.Success) {
-                        $answerBlock.Text = $result.Answer
-                        $answerCard.Visibility = [System.Windows.Visibility]::Visible
-                        $statusBlock.Visibility = [System.Windows.Visibility]::Collapsed
+                        $localAnswerBlock.Text = $result.Answer
+                        $localAnswerCard.Visibility = [System.Windows.Visibility]::Visible
+                        $localStatusBlock.Visibility = [System.Windows.Visibility]::Collapsed
                     } else {
-                        $statusBlock.Text = "Error: $($result.Error)"
-                        $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
+                        $localStatusBlock.Text = "Error: $($result.Error)"
+                        $localStatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
                     }
                 } catch {
-                    $statusBlock.Text = "Error: $($_.Exception.Message)"
-                    $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
+                    $localStatusBlock.Text = "Error: $($_.Exception.Message)"
+                    $localStatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
                 } finally {
                     Remove-Job $job -Force
-                    $askBtn.IsEnabled = $true
+                    $localAskBtn.IsEnabled = $true
                 }
             }
         }.GetNewClosure())
