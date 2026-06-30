@@ -1364,61 +1364,51 @@ function Show-Dashboard {
     $hintText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#64748B")
     $hintText.Margin = "0,0,0,8"
 
-    # Horizontal row: TextBox + Ask button
-    $inputRow = New-Object System.Windows.Controls.Grid
-    $col1 = New-Object System.Windows.Controls.ColumnDefinition
-    $col1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
-    $col2 = New-Object System.Windows.Controls.ColumnDefinition
-    $col2.Width = [System.Windows.GridLength]::Auto
-    $inputRow.ColumnDefinitions.Add($col1)
-    $inputRow.ColumnDefinitions.Add($col2)
+    # WinForms TextBox via WindowsFormsHost (required for keyboard input in WPF+WinForms mixed app)
+    Add-Type -AssemblyName WindowsFormsIntegration
+    Add-Type -AssemblyName System.Windows.Forms
+    $wfTextBox = New-Object System.Windows.Forms.TextBox
+    $wfTextBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $wfTextBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)  # placeholder gray
+    $wfTextBox.Text = "Type your question..."
+    $wfTextBox.add_Enter({
+        if ($wfTextBox.Text -eq "Type your question...") {
+            $wfTextBox.Text = ""
+            $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+        }
+    })
+    $wfTextBox.add_Leave({
+        if ([string]::IsNullOrWhiteSpace($wfTextBox.Text)) {
+            $wfTextBox.Text = "Type your question..."
+            $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+        }
+    })
+
+    $wfHost = New-Object System.Windows.Forms.Integration.WindowsFormsHost
+    $wfHost.Height = 32
+    $wfHost.Child = $wfTextBox
+
+    # Horizontal row: WinForms input host + Ask button
+    $inputRow = New-Object System.Windows.Controls.DockPanel
     $inputRow.Margin = "0,0,0,8"
-
-    # Question input TextBox
-    $questionBox = New-Object System.Windows.Controls.TextBox
-    $questionBox.FontSize = 13
-    $questionBox.Padding = "8,7"
-    $questionBox.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
-    $questionBox.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#CBD5E1")
-    $questionBox.BorderThickness = "1"
-    $questionBox.Text = "Type your question..."
-    $questionBox.Tag = $true
-    $questionBox.VerticalContentAlignment = "Center"
-    [System.Windows.Controls.Grid]::SetColumn($questionBox, 0)
-
-    # Clear placeholder on focus
-    $questionBox.Add_GotFocus({
-        if ($this.Tag) {
-            $this.Text = ""
-            $this.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#1E293B")
-            $this.Tag = $false
-        }
-    })
-
-    # Restore placeholder on blur if empty
-    $questionBox.Add_LostFocus({
-        if ([string]::IsNullOrWhiteSpace($this.Text)) {
-            $this.Text = "Type your question..."
-            $this.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#94A3B8")
-            $this.Tag = $true
-        }
-    })
 
     # Ask Button
     $askBtn = New-Object System.Windows.Controls.Button
     $askBtn.Content = "Ask"
     $askBtn.FontSize = 12
-    $askBtn.Padding = "16,7"
+    $askBtn.Padding = "16,0"
     $askBtn.Margin = "8,0,0,0"
+    $askBtn.Height = 32
     $askBtn.Cursor = [System.Windows.Input.Cursors]::Hand
     $askBtn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
     $askBtn.Foreground = [System.Windows.Media.Brushes]::White
     $askBtn.BorderThickness = "0"
     $askBtn.FontWeight = "SemiBold"
-    [System.Windows.Controls.Grid]::SetColumn($askBtn, 1)
+    [System.Windows.Controls.DockPanel]::SetDock($askBtn, [System.Windows.Controls.Dock]::Right)
 
-    $inputRow.Children.Add($questionBox) | Out-Null
-    $inputRow.Children.Add($askBtn) | Out-Null
+    $inputRow.Children.Add($askBtn) | Out-Null   # docked items must be added first
+    $inputRow.Children.Add($wfHost) | Out-Null   # fills remaining space
 
     # Status TextBlock (loading/error) — shown below input while waiting
     $statusBlock = New-Object System.Windows.Controls.TextBlock
@@ -1459,8 +1449,8 @@ function Show-Dashboard {
 
     # Wire Ask button click handler
     $askBtn.Add_Click({
-        $question = $questionBox.Text
-        if ([string]::IsNullOrWhiteSpace($question) -or $questionBox.Tag) { return }
+        $question = $wfTextBox.Text
+        if ([string]::IsNullOrWhiteSpace($question) -or $question -eq "Type your question...") { return }
 
         $answerBlock.Text = ""
         $answerCard.Visibility = [System.Windows.Visibility]::Collapsed
