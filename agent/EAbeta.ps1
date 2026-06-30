@@ -1456,6 +1456,7 @@ function Show-Dashboard {
         $localAnswerBlock.Text = ""
         $localAnswerCard.Visibility = [System.Windows.Visibility]::Collapsed
         $localStatusBlock.Text = "Searching knowledge base..."
+        $localStatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3B82F6")
         $localStatusBlock.Visibility = [System.Windows.Visibility]::Visible
         $localAskBtn.IsEnabled = $false
 
@@ -1480,7 +1481,8 @@ function Show-Dashboard {
             Remove-Item -Path $file -Force -ErrorAction SilentlyContinue
             [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
             try {
-                $body = '{"question":"' + $data.Question + '","top_k":5}'
+                # Use proper JSON serialization to avoid breaking on quotes/backslashes/newlines in the question
+                $body = @{ question = $data.Question; top_k = 5 } | ConvertTo-Json -Compress
                 $resp = Invoke-RestMethod -Uri $data.Url -Method Post `
                     -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $data.ApiKey } `
                     -Body $body -TimeoutSec 30 -ErrorAction Stop
