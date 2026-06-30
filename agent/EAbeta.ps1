@@ -11,10 +11,14 @@
 $Script:EAVersion = "7.0.0"
 
 # ==============================================================================
-# HELP BOT CONFIGURATION — edit these two values to connect to your /ask server
+# HELP BOT CONFIGURATION
+# Edit your URL/API key in EAbeta.settings.ps1 (same folder, NOT this file).
+# That file is never overwritten when EAbeta.ps1 is updated/redownloaded.
 # ==============================================================================
-$Script:HelpBotUrl    = ""   # e.g. https://your-server.com/ask
-$Script:HelpBotApiKey = ""   # your X-API-Key value
+$Script:HelpBotUrl    = ""
+$Script:HelpBotApiKey = ""
+$settingsPath = Join-Path (if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }) "EAbeta.settings.ps1"
+if (Test-Path $settingsPath) { . $settingsPath }
 # ==============================================================================
 
 # ---- Config ------------------------------------------------------------------
