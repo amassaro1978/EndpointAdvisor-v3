@@ -1371,6 +1371,12 @@ function Show-Dashboard {
     $wfTextBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
     $wfTextBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
     $wfTextBox.ForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+    $wfTextBox.add_KeyDown({
+        if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Return) {
+            $_.SuppressKeyPress = $true
+            $askBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+        }
+    })
 
     $wfHost = New-Object System.Windows.Forms.Integration.WindowsFormsHost
     $wfHost.Height = 32
