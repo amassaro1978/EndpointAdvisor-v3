@@ -1435,9 +1435,11 @@ function Show-Dashboard {
     $answerCard.Child = $answerInner
 
     # Wire Ask button click handler
+    # Uses Start-Job for async HTTP + WinForms Timer to poll results on the UI thread
+    # (Runspace+Dispatcher.Invoke deadlocks in WinForms-hosted WPF apps)
     $askBtn.Add_Click({
         $question = $wfTextBox.Text
-        if ([string]::IsNullOrWhiteSpace($question) -or $question -eq "Type your question...") { return }
+        if ([string]::IsNullOrWhiteSpace($question)) { return }
 
         $answerBlock.Text = ""
         $answerCard.Visibility = [System.Windows.Visibility]::Collapsed
@@ -1448,53 +1450,48 @@ function Show-Dashboard {
         $helpBotUrl    = if ($Script:HelpBotUrl)    { $Script:HelpBotUrl }    else { $Config.HelpBotUrl }
         $helpBotApiKey = if ($Script:HelpBotApiKey) { $Script:HelpBotApiKey } else { $Config.HelpBotApiKey }
 
-        # Shared synchronized hashtable for cross-thread communication
-        $shared = [hashtable]::Synchronized(@{
-            Question    = $question
-            Url         = $helpBotUrl
-            ApiKey      = $helpBotApiKey
-            Dispatcher  = $dispatcher
-            AskBtn      = $askBtn
-            StatusBlock = $statusBlock
-            AnswerBlock = $answerBlock
-            AnswerCard  = $answerCard
-        })
-
-        # Run HTTP call in a fresh Runspace so the UI thread stays responsive
-        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-        $rs.ApartmentState = "STA"
-        $rs.ThreadOptions  = "ReuseThread"
-        $rs.Open()
-        $rs.SessionStateProxy.SetVariable('shared', $shared)
-
-        $ps = [System.Management.Automation.PowerShell]::Create()
-        $ps.Runspace = $rs
-        [void]$ps.AddScript({
+        # Run HTTP call in a background job (separate process, no threading issues)
+        $job = Start-Job -ScriptBlock {
+            param($url, $apiKey, $q)
             [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
             try {
-                $body = '{"question":"' + $shared.Question + '","top_k":5}'
-                $resp = Invoke-RestMethod -Uri $shared.Url -Method Post `
-                    -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $shared.ApiKey } `
+                $body = '{"question":"' + $q + '","top_k":5}'
+                $resp = Invoke-RestMethod -Uri $url -Method Post `
+                    -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $apiKey } `
                     -Body $body -TimeoutSec 30 -ErrorAction Stop
-                $answer = if ($resp.answer) { $resp.answer } else { 'No answer returned from Help Bot.' }
-                $shared.Dispatcher.Invoke([System.Action]{
-                    $shared.AnswerBlock.Text = $answer
-                    $shared.AnswerCard.Visibility = [System.Windows.Visibility]::Visible
-                    $shared.StatusBlock.Visibility = [System.Windows.Visibility]::Collapsed
-                    $shared.AskBtn.IsEnabled = $true
-                })
+                return @{ Success = $true; Answer = if ($resp.answer) { $resp.answer } else { 'No answer returned.' } }
             } catch {
-                $err = $_.Exception.Message
-                $shared.Dispatcher.Invoke([System.Action]{
-                    $shared.StatusBlock.Text = "Error: $err"
-                    $shared.StatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#DC2626')
-                    $shared.AskBtn.IsEnabled = $true
-                })
-            } finally {
-                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+                return @{ Success = $false; Error = $_.Exception.Message }
             }
-        })
-        [void]$ps.BeginInvoke()
+        } -ArgumentList $helpBotUrl, $helpBotApiKey, $question
+
+        # WinForms Timer polls for job completion on the UI thread (safe for WPF controls)
+        $pollTimer = New-Object System.Windows.Forms.Timer
+        $pollTimer.Interval = 500
+        $pollTimer.add_Tick({
+            if ($job.State -notin 'Running','NotStarted') {
+                $pollTimer.Stop()
+                $pollTimer.Dispose()
+                try {
+                    $result = Receive-Job $job -ErrorAction Stop
+                    if ($result.Success) {
+                        $answerBlock.Text = $result.Answer
+                        $answerCard.Visibility = [System.Windows.Visibility]::Visible
+                        $statusBlock.Visibility = [System.Windows.Visibility]::Collapsed
+                    } else {
+                        $statusBlock.Text = "Error: $($result.Error)"
+                        $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
+                    }
+                } catch {
+                    $statusBlock.Text = "Error: $($_.Exception.Message)"
+                    $statusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#DC2626")
+                } finally {
+                    Remove-Job $job -Force
+                    $askBtn.IsEnabled = $true
+                }
+            }
+        }.GetNewClosure())
+        $pollTimer.Start()
     }.GetNewClosure())
 
     $askPanel.Children.Add($hintText) | Out-Null
