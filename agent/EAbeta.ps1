@@ -1443,8 +1443,30 @@ function Show-Dashboard {
     $answerBlock.TextWrapping = "Wrap"
     $answerBlock.LineHeight = 22
 
+    # Confidence line — shown under the answer text when the API returns a confidence score
+    $confidenceBlock = New-Object System.Windows.Controls.TextBlock
+    $confidenceBlock.FontSize = 11
+    $confidenceBlock.FontWeight = "SemiBold"
+    $confidenceBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
+    $confidenceBlock.Margin = "0,8,0,0"
+    $confidenceBlock.Visibility = [System.Windows.Visibility]::Collapsed
+
+    # Sources — top 3 KB articles, each rendered as a clickable hyperlink
+    $sourcesLabel = New-Object System.Windows.Controls.TextBlock
+    $sourcesLabel.Text = "Sources"
+    $sourcesLabel.FontSize = 10
+    $sourcesLabel.FontWeight = "SemiBold"
+    $sourcesLabel.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#64748B")
+    $sourcesLabel.Margin = "0,8,0,4"
+    $sourcesLabel.Visibility = [System.Windows.Visibility]::Collapsed
+
+    $sourcesPanel = New-Object System.Windows.Controls.StackPanel
+
     $answerInner.Children.Add($answerLabel) | Out-Null
     $answerInner.Children.Add($answerBlock) | Out-Null
+    $answerInner.Children.Add($confidenceBlock) | Out-Null
+    $answerInner.Children.Add($sourcesLabel) | Out-Null
+    $answerInner.Children.Add($sourcesPanel) | Out-Null
     $answerCard.Child = $answerInner
 
     # Wire Ask button click handler
@@ -1463,13 +1485,20 @@ $askBtn.Add_Click({
         if ([string]::IsNullOrWhiteSpace($question)) { return }
 
         # Capture outer-scope WPF controls as locals so nested closure can see them
-        $localStatusBlock = $statusBlock
-        $localAnswerBlock = $answerBlock
-        $localAnswerCard  = $answerCard
-        $localAskBtn      = $askBtn
+        $localStatusBlock     = $statusBlock
+        $localAnswerBlock     = $answerBlock
+        $localAnswerCard      = $answerCard
+        $localAskBtn          = $askBtn
+        $localConfidenceBlock = $confidenceBlock
+        $localSourcesLabel    = $sourcesLabel
+        $localSourcesPanel    = $sourcesPanel
 
         $localAnswerBlock.Text = ""
         $localAnswerCard.Visibility = [System.Windows.Visibility]::Collapsed
+        $localConfidenceBlock.Text = ""
+        $localConfidenceBlock.Visibility = [System.Windows.Visibility]::Collapsed
+        $localSourcesLabel.Visibility = [System.Windows.Visibility]::Collapsed
+        $localSourcesPanel.Children.Clear()
         $localStatusBlock.Text = "Searching Knowledge Base..."
         $localStatusBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3B82F6")
         $localStatusBlock.Visibility = [System.Windows.Visibility]::Visible
@@ -1501,7 +1530,12 @@ $askBtn.Add_Click({
                 $resp = Invoke-RestMethod -Uri $data.Url -Method Post `
                     -Headers @{ 'Content-Type' = 'application/json'; 'X-API-Key' = $data.ApiKey } `
                     -Body $body -TimeoutSec 30 -ErrorAction Stop
-                return @{ Success = $true; Answer = if ($resp.answer) { $resp.answer } else { 'No answer returned.' } }
+                return @{
+                    Success    = $true
+                    Answer     = if ($resp.answer) { $resp.answer } else { 'No answer returned.' }
+                    Confidence = $resp.confidence
+                    Sources    = @($resp.sources | Select-Object -First 3)
+                }
             } catch {
                 return @{ Success = $false; Error = $_.Exception.Message }
             }
@@ -1518,6 +1552,37 @@ $askBtn.Add_Click({
                     $result = Receive-Job $job -ErrorAction Stop
                     if ($result.Success) {
                         $localAnswerBlock.Text = $result.Answer
+
+                        if ($null -ne $result.Confidence) {
+                            $pct = [Math]::Round([double]$result.Confidence * 100)
+                            $localConfidenceBlock.Text = "Confidence: $pct%"
+                            $localConfidenceBlock.Visibility = [System.Windows.Visibility]::Visible
+                        }
+
+                        if ($result.Sources -and $result.Sources.Count -gt 0) {
+                            foreach ($src in $result.Sources) {
+                                $srcText = New-Object System.Windows.Controls.TextBlock
+                                $srcText.FontSize = 12
+                                $srcText.Margin = "0,0,0,3"
+                                $srcText.TextWrapping = "Wrap"
+
+                                $link = New-Object System.Windows.Documents.Hyperlink
+                                $linkRun = New-Object System.Windows.Documents.Run("$($src.kb_number): $($src.name)")
+                                $link.Inlines.Add($linkRun)
+                                $link.NavigateUri = [Uri]$src.url
+                                $link.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2563EB")
+                                $link.Add_RequestNavigate({
+                                    param($sender, $e)
+                                    Start-Process $e.Uri.AbsoluteUri
+                                    $e.Handled = $true
+                                })
+
+                                $srcText.Inlines.Add($link)
+                                $localSourcesPanel.Children.Add($srcText) | Out-Null
+                            }
+                            $localSourcesLabel.Visibility = [System.Windows.Visibility]::Visible
+                        }
+
                         $localAnswerCard.Visibility = [System.Windows.Visibility]::Visible
                         $localStatusBlock.Visibility = [System.Windows.Visibility]::Collapsed
                     } else {
